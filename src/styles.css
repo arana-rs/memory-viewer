@@ -2140,6 +2140,20 @@ main:not(.is-execution-focused) .source-editor {
   margin-bottom: 0;
 }
 
+.build-version {
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+  font-size: 0.72rem;
+}
+
+.build-version code {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+}
+
 .site-footer a {
   color: var(--foreground);
 }

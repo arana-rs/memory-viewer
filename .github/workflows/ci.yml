@@ -39,3 +39,5 @@ jobs:
 
       - name: Verificar build
         run: pnpm build
+        env:
+          VITE_COMMIT_SHA: ${{ github.sha }}

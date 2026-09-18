@@ -35,8 +35,15 @@ const sourceHighlightCode = sourceHighlight?.querySelector('code');
 const interpretButton = document.getElementById('interpret-code');
 const shareStatus = document.getElementById('share-status');
 const parserStatus = document.getElementById('parser-status');
+const buildCommit = document.getElementById('build-commit');
 const editorPanel = document.querySelector('.editor-panel');
 const mainElement = document.querySelector('main');
+
+if (buildCommit) {
+  const commitSha = __APP_COMMIT__ === 'local' ? 'local' : __APP_COMMIT__.slice(0, 7);
+  buildCommit.textContent = commitSha;
+  buildCommit.title = `Commit de compilación: ${__APP_COMMIT__}`;
+}
 
 sourceInput?.setAttribute('maxlength', String(INTERPRETER_LIMITS.maxSourceLength));
 
