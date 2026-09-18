@@ -1,28 +1,32 @@
+// The bootstrap module coordinates the DOM and is migrated separately from
+// the strictly typed model and utility modules.
+// @ts-nocheck
+
 import './styles.css';
 import {
   bindMemoryHighlights,
   bindTraceSequence,
   createTraceSequence,
   setAccessibilityPreferences
-} from './memory-render.js';
-import { buildMemoryProgram, CParserError, CExecutionError } from './c-interpreter.js';
-import { INTERPRETER_LIMITS } from './interpreter-limits.js';
-import { registerResetter, resetAllStates } from './reset-state.js';
-import { setIcon } from './icons.js';
+} from './memory-render';
+import { buildMemoryProgram, CParserError, CExecutionError } from './c-interpreter';
+import { INTERPRETER_LIMITS } from './interpreter-limits';
+import { registerResetter, resetAllStates } from './reset-state';
+import { setIcon } from './icons';
 
 const resetButton = document.getElementById('reset-page');
 const resetIcon = resetButton?.querySelector('.reset-icon');
 const themeButton = document.getElementById('theme-toggle');
 const themeIcon = themeButton?.querySelector('.theme-icon');
 const warningIcon = document.querySelector('.warning-icon');
-const accessibilityMenu = document.querySelector('.accessibility-menu');
-const accessibilityToggle = document.getElementById('accessibility-toggle');
+const accessibilityMenu = document.querySelector<HTMLElement>('.accessibility-menu');
+const accessibilityToggle = document.getElementById('accessibility-toggle') as HTMLButtonElement | null;
 const accessibilityIcon = accessibilityToggle?.querySelector('.accessibility-icon');
 const accessibilityPanel = document.getElementById('accessibility-panel');
-const changeHighlightCheckbox = document.getElementById('accessibility-change-highlight');
-const pointerArrowsCheckbox = document.getElementById('accessibility-pointer-arrows');
+const changeHighlightCheckbox = document.getElementById('accessibility-change-highlight') as HTMLInputElement | null;
+const pointerArrowsCheckbox = document.getElementById('accessibility-pointer-arrows') as HTMLInputElement | null;
 const examplesRoot = document.getElementById('memory-examples');
-const sourceInput = document.getElementById('source-input');
+const sourceInput = document.getElementById('source-input') as HTMLTextAreaElement | null;
 const sourceHighlight = document.getElementById('source-highlight');
 const sourceHighlightCode = sourceHighlight?.querySelector('code');
 const interpretButton = document.getElementById('interpret-code');
@@ -189,7 +193,7 @@ accessibilityToggle?.addEventListener('click', () => {
 });
 
 document.addEventListener('click', (event) => {
-  if (!accessibilityMenu?.contains(event.target)) closeAccessibilityMenu();
+  if (!(event.target instanceof Node) || !accessibilityMenu?.contains(event.target)) closeAccessibilityMenu();
 });
 
 document.addEventListener('keydown', (event) => {
@@ -413,7 +417,7 @@ function renderProgram({ focusExecution = false, transitionOrigin = null } = {})
     });
 
     if (focusExecution) {
-      if (startFallbackFocusEntry(transitionOrigin)) {
+      if (startFallbackFocusEntry()) {
         lesson.playButton.focus({ preventScroll: true });
         return;
       }

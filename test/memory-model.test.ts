@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { MemoryScope } from '../src/memory-model.js';
+import { MemoryScope } from '../src/memory-model';
 
 test('resuelve referencias y escritura a través de un puntero', () => {
   const memory = new MemoryScope({ baseAddress: 0x100 });
