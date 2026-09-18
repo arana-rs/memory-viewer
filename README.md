@@ -34,6 +34,8 @@ pnpm preview
 
 - Permite escribir código C y resaltarlo sintácticamente.
 - Interpreta un subconjunto educativo de C.
+- Incluye ejemplos de asignación con `malloc` y liberación con `free`.
+- Distingue visualmente punteros colgantes y memoria inalcanzable.
 - Muestra los cambios de variables, punteros, stack y heap.
 - Permite avanzar, retroceder y ejecutar la traza automáticamente.
 - Incluye controles visuales de accesibilidad y una vista de pantalla completa.

@@ -12,10 +12,6 @@
   <body>
     <header class="site-header">
       <h1>Memoria en <span class="header-cpp">C++</span>/C</h1>
-      <p class="warning-notice" role="note">
-        <span class="warning-icon" aria-hidden="true"></span> Esta guía no es 100% precisa respecto a lo enseñado en clase. Úsala
-        bajo tu propio riesgo.
-      </p>
     </header>
 
     <main>
@@ -52,28 +48,64 @@ struct node {
     struct node* next;
 };
 
-void Push(struct node** headRef, int newData) {
-    struct node* newNode = malloc(sizeof(struct node));
-    newNode->data = newData;
-    newNode->next = *headRef;
-    *headRef = newNode;
-}
+struct node* BuildManyNodes() {
+    struct node* node1 = malloc(sizeof(struct node));
+    struct node* node2 = malloc(sizeof(struct node));
+    struct node* node3 = malloc(sizeof(struct node));
+    struct node* node4 = malloc(sizeof(struct node));
+    struct node* node5 = malloc(sizeof(struct node));
+    struct node* node6 = malloc(sizeof(struct node));
+    struct node* node7 = malloc(sizeof(struct node));
+    struct node* node8 = malloc(sizeof(struct node));
 
-struct node* BuildWithLocalRef() {
-    struct node* head = NULL;
-    struct node** lastPtrRef = &amp;head;
+    node1->data = 1;
+    node2->data = 2;
+    node3->data = 3;
+    node4->data = 4;
+    node5->data = 5;
+    node6->data = 6;
+    node7->data = 7;
+    node8->data = 8;
 
-    Push(lastPtrRef, 1);
-    lastPtrRef = &amp;((*lastPtrRef)->next);
-    Push(lastPtrRef, 2);
-    lastPtrRef = &amp;((*lastPtrRef)->next);
-    Push(lastPtrRef, 3);
+    node1->next = node2;
+    node2->next = node3;
+    node3->next = node4;
+    node4->next = node5;
+    node5->next = node6;
+    node6->next = node7;
+    node7->next = node8;
+    node8->next = NULL;
 
-    return head;
+    return node1;
 }
 
 int main() {
-    struct node* head = BuildWithLocalRef();
+    struct node* head = BuildManyNodes();
+    while (head != NULL) {
+        struct node* next = head->next;
+        free(head);
+        head = next;
+    }
+
+    struct node* dangling = malloc(sizeof(struct node));
+    struct node* orphan = malloc(sizeof(struct node));
+    free(dangling);
+    orphan = NULL;
+
+    int values[3];
+    values[0] = 10;
+    values[1] = 20;
+    values[2] = 30;
+    values[3] = 40;
+
+    struct node* useAfterFree = malloc(sizeof(struct node));
+    free(useAfterFree);
+    useAfterFree->data = 99;
+    free(useAfterFree);
+
+    struct node* nullPointer = NULL;
+    nullPointer->data = 1;
+
     return 0;
 }</textarea>
         </div>
@@ -81,9 +113,14 @@ int main() {
           <button id="interpret-code" class="interpret-button" type="button">
             <span class="interpret-label">Interpretar código</span>
           </button>
+          <button id="share-code" class="share-button" type="button" aria-label="Compartir código">
+            <span class="share-icon" aria-hidden="true"></span>
+            <span>Compartir</span>
+          </button>
           <p id="parser-status" class="status" aria-live="polite">
             Escribe código y pulsa interpretar.
           </p>
+          <p id="share-status" class="share-status" aria-live="polite"></p>
         </div>
       </section>
       <div id="memory-examples" aria-hidden="true" hidden></div>
@@ -103,6 +140,17 @@ int main() {
       </p>
     </footer>
 
+    <aside id="site-disclaimer" class="site-disclaimer" role="dialog" aria-labelledby="site-disclaimer-title">
+      <div class="site-disclaimer__content">
+        <p id="site-disclaimer-title" class="site-disclaimer__title">Aviso importante</p>
+        <p class="site-disclaimer__text">
+          Esta guía es material educativo y puede simplificar algunos detalles del lenguaje. Úsala bajo tu propio criterio.
+          Esta web no recopila ni envía información personal; tus preferencias se guardan únicamente en este navegador.
+        </p>
+      </div>
+      <button id="site-disclaimer-dismiss" class="site-disclaimer__dismiss" type="button">Entendido</button>
+    </aside>
+
     <div class="floating-actions" aria-label="Preferencias de la vista">
       <div class="accessibility-menu">
         <button
@@ -118,7 +166,7 @@ int main() {
         <div id="accessibility-panel" class="accessibility-panel" hidden>
           <p class="accessibility-panel__title">Accesibilidad</p>
           <label class="accessibility-option">
-            <input id="accessibility-change-highlight" type="checkbox">
+            <input id="accessibility-change-highlight" type="checkbox" checked>
             <span>Resaltar cambios del último paso</span>
           </label>
           <label class="accessibility-option">

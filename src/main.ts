@@ -18,7 +18,10 @@ const resetButton = document.getElementById('reset-page');
 const resetIcon = resetButton?.querySelector('.reset-icon');
 const themeButton = document.getElementById('theme-toggle');
 const themeIcon = themeButton?.querySelector('.theme-icon');
-const warningIcon = document.querySelector('.warning-icon');
+const shareButton = document.getElementById('share-code');
+const shareIcon = shareButton?.querySelector('.share-icon');
+const disclaimer = document.getElementById('site-disclaimer');
+const disclaimerDismiss = document.getElementById('site-disclaimer-dismiss');
 const accessibilityMenu = document.querySelector<HTMLElement>('.accessibility-menu');
 const accessibilityToggle = document.getElementById('accessibility-toggle') as HTMLButtonElement | null;
 const accessibilityIcon = accessibilityToggle?.querySelector('.accessibility-icon');
@@ -30,6 +33,7 @@ const sourceInput = document.getElementById('source-input') as HTMLTextAreaEleme
 const sourceHighlight = document.getElementById('source-highlight');
 const sourceHighlightCode = sourceHighlight?.querySelector('code');
 const interpretButton = document.getElementById('interpret-code');
+const shareStatus = document.getElementById('share-status');
 const parserStatus = document.getElementById('parser-status');
 const editorPanel = document.querySelector('.editor-panel');
 const mainElement = document.querySelector('main');
@@ -111,6 +115,50 @@ function syncSourceHighlight() {
 
 sourceInput?.addEventListener('input', syncSourceHighlight);
 sourceInput?.addEventListener('scroll', syncSourceHighlight, { passive: true });
+
+const sharedCodePrefix = 'code=';
+
+function encodeSharedCode(source) {
+  const bytes = new TextEncoder().encode(source);
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function decodeSharedCode(payload) {
+  const normalized = payload
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function loadSharedCodeFromUrl() {
+  const hash = window.location.hash.startsWith('#')
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  if (!hash.startsWith(sharedCodePrefix)) return null;
+
+  try {
+    return decodeSharedCode(hash.slice(sharedCodePrefix.length));
+  } catch {
+    if (shareStatus) shareStatus.textContent = 'El enlace compartido no contiene código válido.';
+    return null;
+  }
+}
+
+const sharedCode = loadSharedCodeFromUrl();
+if (sharedCode !== null && sourceInput) {
+  sourceInput.value = sharedCode;
+  if (shareStatus) shareStatus.textContent = 'Código cargado desde un enlace compartido.';
+}
 syncSourceHighlight();
 
 const themeStorageKey = 'memory-viewer-theme';
@@ -141,7 +189,82 @@ try {
 applyTheme(savedTheme);
 setIcon(accessibilityIcon, 'accessibility');
 setIcon(resetIcon, 'rotate-ccw');
-setIcon(warningIcon, 'triangle-alert');
+setIcon(shareIcon, 'share');
+
+function createSharedUrl() {
+  const url = new URL(window.location.href);
+  url.hash = `${sharedCodePrefix}${encodeSharedCode(sourceInput?.value ?? '')}`;
+  return url;
+}
+
+async function copyText(value) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return true;
+  }
+
+  const temporaryInput = document.createElement('textarea');
+  temporaryInput.value = value;
+  temporaryInput.setAttribute('readonly', '');
+  temporaryInput.style.position = 'fixed';
+  temporaryInput.style.opacity = '0';
+  document.body.append(temporaryInput);
+  temporaryInput.select();
+  const copied = document.execCommand('copy');
+  temporaryInput.remove();
+  return copied;
+}
+
+shareButton?.addEventListener('click', async () => {
+  const source = sourceInput?.value.trim() ?? '';
+  if (!source) {
+    if (shareStatus) shareStatus.textContent = 'Escribe código antes de compartirlo.';
+    return;
+  }
+
+  const url = createSharedUrl();
+  window.history.replaceState(null, '', url);
+
+  try {
+    if (navigator.share) {
+      await navigator.share({
+        title: 'Solución de memoria en C/C++',
+        text: 'Mira este código interpretado paso a paso.',
+        url: url.toString()
+      });
+      if (shareStatus) shareStatus.textContent = 'Enlace compartido.';
+      return;
+    }
+
+    const copied = await copyText(url.toString());
+    if (shareStatus) {
+      shareStatus.textContent = copied
+        ? 'Enlace copiado al portapapeles.'
+        : 'No se pudo copiar el enlace.';
+    }
+  } catch (error) {
+    if (error?.name === 'AbortError') return;
+    if (shareStatus) shareStatus.textContent = 'No se pudo compartir el enlace.';
+  }
+});
+
+const disclaimerStorageKey = 'memory-viewer-disclaimer-dismissed';
+try {
+  if (window.localStorage?.getItem(disclaimerStorageKey) === 'true') {
+    disclaimer?.setAttribute('hidden', '');
+  }
+} catch {
+  // The notice remains visible when storage is unavailable.
+}
+
+disclaimerDismiss?.addEventListener('click', () => {
+  disclaimer?.setAttribute('hidden', '');
+  try {
+    window.localStorage?.setItem(disclaimerStorageKey, 'true');
+  } catch {
+    // Closing the notice still works for the current session.
+  }
+});
 
 themeButton?.addEventListener('click', () => {
   const nextTheme = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
@@ -152,24 +275,35 @@ themeButton?.addEventListener('click', () => {
 });
 
 const accessibilityStorageKey = 'memory-viewer-accessibility';
+let activeAccessibilityPreferences = {
+  highlightChanges: true,
+  pointerArrows: false,
+  pointerArrowsExplicit: false
+};
 
 function readAccessibilityPreferences() {
   try {
-    const saved = JSON.parse(window.localStorage?.getItem(accessibilityStorageKey) ?? '{}');
+    const raw = window.localStorage?.getItem(accessibilityStorageKey);
+    const saved = JSON.parse(raw ?? '{}');
     return {
-      highlightChanges: Boolean(saved.highlightChanges),
-      pointerArrows: Boolean(saved.pointerArrows)
+      highlightChanges: typeof saved.highlightChanges === 'boolean' ? saved.highlightChanges : true,
+      pointerArrows: Boolean(saved.pointerArrows),
+      pointerArrowsExplicit: Boolean(raw && Object.prototype.hasOwnProperty.call(saved, 'pointerArrows'))
     };
   } catch {
-    return { highlightChanges: false, pointerArrows: false };
+    return { highlightChanges: true, pointerArrows: false, pointerArrowsExplicit: false };
   }
 }
 
-function applyAccessibilityPreferences({ highlightChanges, pointerArrows }, { persist = false } = {}) {
+function applyAccessibilityPreferences({ highlightChanges, pointerArrows, pointerArrowsExplicit = false }, { persist = false } = {}) {
   const preferences = { highlightChanges: Boolean(highlightChanges), pointerArrows: Boolean(pointerArrows) };
+  activeAccessibilityPreferences = {
+    ...preferences,
+    pointerArrowsExplicit
+  };
   if (changeHighlightCheckbox) changeHighlightCheckbox.checked = preferences.highlightChanges;
   if (pointerArrowsCheckbox) pointerArrowsCheckbox.checked = preferences.pointerArrows;
-  setAccessibilityPreferences(preferences);
+  setAccessibilityPreferences({ ...preferences, pointerArrowsExplicit });
   if (persist) {
     try {
       window.localStorage?.setItem(accessibilityStorageKey, JSON.stringify(preferences));
@@ -204,11 +338,13 @@ const savedAccessibilityPreferences = readAccessibilityPreferences();
 applyAccessibilityPreferences(savedAccessibilityPreferences);
 changeHighlightCheckbox?.addEventListener('change', () => applyAccessibilityPreferences({
   highlightChanges: changeHighlightCheckbox.checked,
-  pointerArrows: pointerArrowsCheckbox?.checked
+  pointerArrows: pointerArrowsCheckbox?.checked,
+  pointerArrowsExplicit: true
 }, { persist: true }));
 pointerArrowsCheckbox?.addEventListener('change', () => applyAccessibilityPreferences({
   highlightChanges: changeHighlightCheckbox?.checked,
-  pointerArrows: pointerArrowsCheckbox.checked
+  pointerArrows: pointerArrowsCheckbox.checked,
+  pointerArrowsExplicit: true
 }, { persist: true }));
 
 function describeProgram(instructions) {
@@ -231,6 +367,11 @@ function renderProgram({ focusExecution = false, transitionOrigin = null } = {})
       idleStatus: '',
       collapsedFunctionNames
     });
+    if (pointerArrowsCheckbox) {
+      const usesSmallExampleDefault = lesson.example.dataset.pointerArrowsDefault === 'true';
+      pointerArrowsCheckbox.checked = activeAccessibilityPreferences.pointerArrows
+        || (!activeAccessibilityPreferences.pointerArrowsExplicit && usesSmallExampleDefault);
+    }
 
     stopExecutionFocusTracking();
     stopExecutionFocusTracking = () => {};
@@ -293,6 +434,11 @@ function renderProgram({ focusExecution = false, transitionOrigin = null } = {})
       });
 
       window.requestAnimationFrame(() => {
+        // The fallback focus transition changes the example from its normal
+        // document geometry to a fixed viewport-sized surface. Recalculate
+        // the execution marker after that geometry has been applied so it
+        // remains attached to the actual first executable line.
+        resetLesson.relayout?.();
         document.body.classList.add('is-execution-entering');
         lesson.example.style.opacity = '1';
         lesson.example.style.transform = 'translateY(0) scale(1)';
