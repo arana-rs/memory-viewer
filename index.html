@@ -15,27 +15,19 @@
     </header>
 
     <main>
-      <section class="editor-panel" aria-labelledby="editor-title">
-        <div class="editor-heading">
-          <h2 id="editor-title">Escribe código</h2>
-          <div class="language-switcher" role="group" aria-label="Lenguaje del código">
-            <button class="language-button is-selected" type="button" aria-pressed="true">C</button>
-            <button
-              class="language-button"
-              type="button"
-              aria-pressed="false"
-              disabled
-              title="La interpretación de C++ estará disponible próximamente"
-            >C++</button>
-          </div>
-        </div>
+      <section class="editor-panel" aria-label="Editor de código">
         <div class="source-editor">
+          <div id="source-line-numbers" class="source-line-numbers" aria-hidden="true">
+            <div id="source-line-numbers-list" class="source-line-numbers__list"></div>
+          </div>
           <pre id="source-highlight" class="source-highlight" aria-hidden="true"><code></code></pre>
           <textarea
             id="source-input"
             maxlength="50000"
             spellcheck="false"
             wrap="off"
+            aria-autocomplete="list"
+            aria-controls="source-completions"
             aria-label="Código C para interpretar"
           >/*
  * Based on “Linked List Basics” by Nick Parlante.
@@ -108,19 +100,75 @@ int main() {
 
     return 0;
 }</textarea>
+          <div id="source-completions" class="source-completions" role="listbox" aria-label="Autocompletado" hidden></div>
+          <div id="source-hover" class="source-hover" role="tooltip" hidden></div>
+          <form id="source-rename" class="source-rename" aria-label="Renombrar símbolo" hidden>
+            <label for="source-rename-input">Renombrar símbolo</label>
+            <div class="source-rename__controls">
+              <input id="source-rename-input" type="text" spellcheck="false" autocomplete="off">
+              <button type="submit">Aplicar</button>
+              <button id="source-rename-cancel" type="button">Cancelar</button>
+            </div>
+          </form>
         </div>
+        <details id="source-diagnostics" class="source-diagnostics" aria-label="Diagnósticos del editor" hidden>
+          <summary class="source-diagnostics__heading">
+            <span>Diagnósticos</span>
+            <span id="source-diagnostics-count" class="source-diagnostics__count"></span>
+          </summary>
+          <ul id="source-diagnostics-list" class="source-diagnostics__list"></ul>
+        </details>
+        <details id="source-symbols" class="source-symbols" aria-label="Tabla de símbolos" hidden>
+          <summary class="source-symbols__heading">
+            <span>Símbolos</span>
+            <span id="source-symbols-count" class="source-symbols__count"></span>
+          </summary>
+          <div class="source-symbols__table-wrapper">
+            <table class="source-symbols__table">
+              <thead>
+                <tr>
+                  <th scope="col">Nombre</th>
+                  <th scope="col">Clase</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Ámbito</th>
+                  <th scope="col">Ubicación</th>
+                </tr>
+              </thead>
+              <tbody id="source-symbols-body"></tbody>
+            </table>
+          </div>
+        </details>
         <div class="editor-actions">
-          <button id="interpret-code" class="interpret-button" type="button">
-            <span class="interpret-label">Interpretar código</span>
-          </button>
-          <button id="share-code" class="share-button" type="button" aria-label="Compartir código">
-            <span class="share-icon" aria-hidden="true"></span>
-            <span>Compartir</span>
-          </button>
-          <p id="parser-status" class="status" aria-live="polite">
-            Escribe código y pulsa interpretar.
-          </p>
-          <p id="share-status" class="share-status" aria-live="polite"></p>
+          <div class="editor-action-buttons">
+            <button id="interpret-code" class="interpret-button" type="button">
+              <span class="interpret-label">Interpretar código</span>
+            </button>
+            <button id="format-code" class="editor-tool-button" type="button" title="Formatear con indentación de 2 espacios">
+              Formatear
+            </button>
+            <button id="share-code" class="share-button" type="button" aria-label="Compartir código">
+              <span class="share-icon" aria-hidden="true"></span>
+              <span>Compartir</span>
+            </button>
+            <div class="language-switcher" role="group" aria-label="Lenguaje del código">
+              <button class="language-button is-selected" type="button" aria-pressed="true">C</button>
+              <button
+                class="language-button"
+                type="button"
+                aria-pressed="false"
+                disabled
+                title="La interpretación de C++ estará disponible próximamente"
+              >C++</button>
+            </div>
+          </div>
+          <div class="editor-statuses">
+            <p id="parser-status" class="status" aria-live="polite">
+              Escribe código y pulsa interpretar.
+            </p>
+            <p id="share-status" class="share-status" aria-live="polite"></p>
+            <p id="draft-status" class="draft-status" aria-live="polite"></p>
+            <p id="source-position" class="source-position" aria-live="polite">Línea 1, columna 1</p>
+          </div>
         </div>
       </section>
       <div id="memory-examples" aria-hidden="true" hidden></div>
@@ -175,6 +223,10 @@ int main() {
           <label class="accessibility-option">
             <input id="accessibility-pointer-arrows" type="checkbox">
             <span>Mostrar flechas de desreferencia</span>
+          </label>
+          <label class="accessibility-option">
+            <input id="accessibility-symbol-hover" type="checkbox">
+            <span>Mostrar información de símbolos al pasar el cursor</span>
           </label>
         </div>
       </div>

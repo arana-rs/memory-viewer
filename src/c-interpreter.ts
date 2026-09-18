@@ -41,6 +41,8 @@ export class CParserError extends Error {
   constructor(message, token = null) {
     super(token?.line ? `${message} Línea ${token.line}, columna ${token.column}.` : message);
     this.name = 'CParserError';
+    this.line = token?.line ?? null;
+    this.column = token?.column ?? null;
   }
 }
 
@@ -50,6 +52,8 @@ export class CExecutionError extends Error {
     this.name = 'CExecutionError';
     this.code = code;
     this.targetId = targetId;
+    this.line = null;
+    this.column = null;
   }
 }
 
@@ -1380,10 +1384,13 @@ class CInterpreter {
     const tokens = statement.kind === 'while' ? statement.headerTokens : statement.tokens;
     const safeTokens = tokens.filter((token) => token?.value && token.value !== 'EOF');
     const code = tokensToCode(safeTokens);
+    const sourceToken = safeTokens[0] ?? null;
     const detail = {
       type: error.code,
       message: error.message,
-      targetId: error.targetId ?? null
+      targetId: error.targetId ?? null,
+      line: sourceToken?.line ?? null,
+      column: sourceToken?.column ?? null
     };
     const memory = this.snapshot();
     memory.diagnostic = detail;
