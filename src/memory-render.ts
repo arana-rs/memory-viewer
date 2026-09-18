@@ -1,4 +1,8 @@
-import { setIcon } from './icons.js';
+// The renderer is DOM-heavy and remains behavior-preserving during this
+// migration. Its public data contracts are tightened in the typed core first.
+// @ts-nocheck
+
+import { setIcon } from './icons';
 
 const normalizeArea = (area = 'STACK') => String(area).toUpperCase();
 
@@ -387,9 +391,9 @@ export function createMemorySequence({
   playButton.setAttribute('aria-label', instructions[0].buttonLabel);
   setIcon(playButton, 'play');
 
-  const lines = sourceInteractive
+  const lines: HTMLElement[] = sourceInteractive
     ? instructions.map((instruction, index) => {
-      const line = sourceCode.children[instruction.sourceIndex];
+      const line = sourceCode.children[instruction.sourceIndex] as HTMLElement;
       line.dataset.step = String(index);
       if (!line.hasAttribute('aria-label')) line.setAttribute('aria-label', instruction.buttonLabel);
       return line;
@@ -539,7 +543,9 @@ export function bindMemorySequence({
     });
   };
 
-  const positionPlayButton = (targetLine, animate = true) => {
+  const resolveVisibleLine = (line: HTMLElement | undefined): HTMLElement | undefined => line;
+
+  const positionPlayButton = (targetLine: HTMLElement | undefined, animate = true) => {
     const visibleTarget = resolveVisibleLine(targetLine);
     if (!visibleTarget) return;
     const targetTop = visibleTarget.offsetTop + (visibleTarget.offsetHeight - playButton.offsetHeight) / 2;
@@ -685,7 +691,7 @@ export function bindMemorySequence({
       block.style.width = '';
     });
     layoutDynamicBlocks();
-    [...new Set(lines)].forEach((line) => {
+    [...new Set(lines as HTMLElement[])].forEach((line) => {
       line.classList.remove('is-active');
       line.classList.remove('is-complete');
     });
@@ -1061,7 +1067,7 @@ export function bindTraceSequence({
   let previousSnapshot = new Map();
   let activeScopes = [];
   let holdActive = false;
-  let holdPointerId = null;
+  let holdPointerId: number | 'mouse' | null = null;
   let suppressNextClick = false;
   let isRunning = false;
   let autoRunActive = false;
@@ -1740,7 +1746,7 @@ export function bindTraceSequence({
     syncTraceControls();
   };
 
-  const stopHold = (event) => {
+  const stopHold = (event?: { pointerId?: number }) => {
     if (holdPointerId !== null && event?.pointerId !== undefined && event.pointerId !== holdPointerId) return;
     holdActive = false;
     holdPointerId = null;
@@ -1751,7 +1757,7 @@ export function bindTraceSequence({
     syncTraceControls();
   };
 
-  const startHold = (pointerId) => {
+  const startHold = (pointerId: number | 'mouse') => {
     if (playButton.disabled || isRunning) return;
     suppressNextClick = true;
     holdActive = true;

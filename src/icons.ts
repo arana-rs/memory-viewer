@@ -23,7 +23,9 @@ const iconNodes = {
   x: X
 };
 
-export function setIcon(target, name) {
+type IconName = keyof typeof iconNodes;
+
+export function setIcon(target: Element | null | undefined, name: IconName): Element | null {
   if (!target) return null;
 
   const iconNode = iconNodes[name];

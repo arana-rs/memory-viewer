@@ -3,3 +3,5 @@ export const INTERPRETER_LIMITS = Object.freeze({
   maxSteps: 1_000,
   maxCallDepth: 64
 });
+
+export type InterpreterLimits = typeof INTERPRETER_LIMITS;

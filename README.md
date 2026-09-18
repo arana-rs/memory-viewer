@@ -17,6 +17,12 @@ Para ejecutar la suite de pruebas:
 pnpm test
 ```
 
+Para comprobar los tipos de TypeScript:
+
+```bash
+pnpm typecheck
+```
+
 Para generar la versión de producción:
 
 ```bash
@@ -52,7 +58,7 @@ En base a ese aviso, no se requiere autorización adicional para reutilizar el m
 
 ## Dependencias
 
-El proyecto usa Vite, `vite-plugin-singlefile` y Lucide. Sus licencias pertenecen a sus respectivos autores y se documentan en [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
+El proyecto usa TypeScript, Vite, `vite-plugin-singlefile` y Lucide. Sus licencias pertenecen a sus respectivos autores y se documentan en [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
 
 ## Licencia
 

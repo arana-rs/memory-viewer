@@ -8,13 +8,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test",
     "preview": "vite preview"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
   },
   "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
     "vite": "^8.0.0",
     "vite-plugin-singlefile": "^2.3.3"
   },

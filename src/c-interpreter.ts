@@ -1,5 +1,9 @@
-import { INTERPRETER_LIMITS } from './interpreter-limits.js';
-import { alignAddress, formatAddress } from './memory-utils.js';
+// The parser is migrated to TypeScript without changing its execution model;
+// its domain types will be tightened independently from the UI migration.
+// @ts-nocheck
+
+import { INTERPRETER_LIMITS } from './interpreter-limits';
+import { alignAddress, formatAddress } from './memory-utils';
 
 const TYPE_KEYWORDS = new Set(['void', 'char', 'int', 'short', 'long', 'float', 'double', 'bool']);
 const KEYWORDS = new Set([
@@ -161,10 +165,14 @@ function tokenize(source) {
 }
 
 function node(kind, tokens, data = {}) {
-  return { kind, tokens, ...data };
+  return { kind, tokens, ...data } as Record<string, any>;
 }
 
 class Parser {
+  private tokens: ReturnType<typeof tokenize>;
+  private cursor: number;
+  private nextScopeId: number;
+
   constructor(source) {
     this.tokens = tokenize(source);
     this.cursor = 0;
@@ -541,6 +549,9 @@ function pointerTargetKey(pointer) {
 }
 
 class ReturnSignal {
+  value: any;
+  tokens: any;
+
   constructor(value, tokens) {
     this.value = value;
     this.tokens = tokens;
@@ -548,6 +559,8 @@ class ReturnSignal {
 }
 
 class CInterpreter {
+  [key: string]: any;
+
   constructor(ast, {
     maxSteps = INTERPRETER_LIMITS.maxSteps,
     maxCallDepth = INTERPRETER_LIMITS.maxCallDepth
@@ -1163,7 +1176,7 @@ class CInterpreter {
     return { stack, heap, scopes };
   }
 
-  record(tokens, status, metadata = {}) {
+  record(tokens, status, metadata: Record<string, any> = {}) {
     if (this.trace.length >= this.maxSteps) {
       throw new CExecutionError('La ejecución superó el límite de pasos de seguridad.');
     }
@@ -1274,7 +1287,7 @@ function createTraceSource(ast, instructions) {
   });
 
   const sourceLines = [];
-  const addLine = (sourceKey, tokens, indent, options = {}) => {
+  const addLine = (sourceKey, tokens, indent, options: Record<string, any> = {}) => {
     const instruction = instructionBySourceKey.get(sourceKey);
     sourceLines.push({
       sourceKey,

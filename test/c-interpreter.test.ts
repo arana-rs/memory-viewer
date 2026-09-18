@@ -6,8 +6,8 @@ import {
   buildMemoryProgram,
   CExecutionError,
   CParserError
-} from '../src/c-interpreter.js';
-import { INTERPRETER_LIMITS } from '../src/interpreter-limits.js';
+} from '../src/c-interpreter';
+import { INTERPRETER_LIMITS } from '../src/interpreter-limits';
 
 const linkedListSource = await readFile(
   new URL('./fixtures/linked-list.c', import.meta.url),
@@ -21,8 +21,8 @@ test('interpreta el fixture de C y registra memoria heap', () => {
 
   assert.ok(program.instructions.length > 0);
   assert.equal(node.name, 'node 1');
-  assert.equal(node.fields.find((field) => field.name === 'data').value, '7');
-  assert.equal(node.fields.find((field) => field.name === 'next').value, 'NULL');
+  assert.equal(node.fields.find((field: { name: string; value: string }) => field.name === 'data').value, '7');
+  assert.equal(node.fields.find((field: { name: string; value: string }) => field.name === 'next').value, 'NULL');
 });
 
 test('rechaza código que supera el límite de tamaño', () => {
