@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Guía visual para entender la memoria en C++."
+    />
+    <title>Memoria en C++</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <h1>Memoria en <span class="header-cpp">C++</span>/C</h1>
+      <p class="warning-notice" role="note">
+        <span class="warning-icon" aria-hidden="true"></span> Esta guía no es 100% precisa respecto a lo enseñado en clase. Úsala
+        bajo tu propio riesgo.
+      </p>
+    </header>
+
+    <main>
+      <section class="editor-panel" aria-labelledby="editor-title">
+        <div class="editor-heading">
+          <h2 id="editor-title">Escribe código</h2>
+          <div class="language-switcher" role="group" aria-label="Lenguaje del código">
+            <button class="language-button is-selected" type="button" aria-pressed="true">C</button>
+            <button
+              class="language-button"
+              type="button"
+              aria-pressed="false"
+              disabled
+              title="La interpretación de C++ estará disponible próximamente"
+            >C++</button>
+          </div>
+        </div>
+        <div class="source-editor">
+          <pre id="source-highlight" class="source-highlight" aria-hidden="true"><code></code></pre>
+          <textarea
+            id="source-input"
+            maxlength="50000"
+            spellcheck="false"
+            wrap="off"
+            aria-label="Código C para interpretar"
+          >/*
+ * Based on “Linked List Basics” by Nick Parlante.
+ * Copyright © 1998–2001, Nick Parlante.
+ * This document is free to be used, reproduced, or sold so long as this
+ * notice is clearly reproduced at its beginning.
+ */
+struct node {
+    int data;
+    struct node* next;
+};
+
+void Push(struct node** headRef, int newData) {
+    struct node* newNode = malloc(sizeof(struct node));
+    newNode->data = newData;
+    newNode->next = *headRef;
+    *headRef = newNode;
+}
+
+struct node* BuildWithLocalRef() {
+    struct node* head = NULL;
+    struct node** lastPtrRef = &amp;head;
+
+    Push(lastPtrRef, 1);
+    lastPtrRef = &amp;((*lastPtrRef)->next);
+    Push(lastPtrRef, 2);
+    lastPtrRef = &amp;((*lastPtrRef)->next);
+    Push(lastPtrRef, 3);
+
+    return head;
+}
+
+int main() {
+    struct node* head = BuildWithLocalRef();
+    return 0;
+}</textarea>
+        </div>
+        <div class="editor-actions">
+          <button id="interpret-code" class="interpret-button" type="button">
+            <span class="interpret-label">Interpretar código</span>
+          </button>
+          <p id="parser-status" class="status" aria-live="polite">
+            Escribe código y pulsa interpretar.
+          </p>
+        </div>
+      </section>
+      <div id="memory-examples" aria-hidden="true" hidden></div>
+    </main>
+
+    <footer class="site-footer">
+      <p><time datetime="2026-09-09">Última actualización: 9 de septiembre de 2026</time></p>
+      <p>
+        Inspirado en las clases de teoría del docente
+        <a href="https://github.com/alfredopaz" target="_blank" rel="noopener">A. Paz</a>.
+        Proyecto independiente, no oficial ni afiliado.
+      </p>
+      <p class="educational-notice">
+        Esta guía es material educativo. Los diagramas simplifican el
+        funcionamiento de la memoria; la disposición exacta depende del
+        compilador, ABI y opciones de compilación.
+      </p>
+    </footer>
+
+    <div class="floating-actions" aria-label="Preferencias de la vista">
+      <div class="accessibility-menu">
+        <button
+          id="accessibility-toggle"
+          class="accessibility-button"
+          type="button"
+          aria-controls="accessibility-panel"
+          aria-expanded="false"
+          aria-label="Abrir opciones de accesibilidad"
+          title="Opciones de accesibilidad"
+        ><span class="accessibility-icon" aria-hidden="true"></span></button>
+
+        <div id="accessibility-panel" class="accessibility-panel" hidden>
+          <p class="accessibility-panel__title">Accesibilidad</p>
+          <label class="accessibility-option">
+            <input id="accessibility-change-highlight" type="checkbox">
+            <span>Resaltar cambios del último paso</span>
+          </label>
+          <label class="accessibility-option">
+            <input id="accessibility-pointer-arrows" type="checkbox">
+            <span>Mostrar flechas de desreferencia</span>
+          </label>
+        </div>
+      </div>
+
+      <button
+        id="theme-toggle"
+        class="theme-button"
+        type="button"
+        aria-label="Cambiar al tema claro"
+        title="Cambiar al tema claro"
+      ><span class="theme-icon" aria-hidden="true"></span></button>
+
+      <button
+        id="reset-page"
+        class="reset-button"
+        type="button"
+        aria-label="Reiniciar todas las operaciones"
+      ><span class="reset-icon" aria-hidden="true"></span></button>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
