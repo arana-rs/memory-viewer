@@ -79,6 +79,78 @@ main {
   stroke-width: 2.2;
 }
 
+.site-disclaimer {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px clamp(20px, 5vw, 72px);
+  border-top: 1px solid rgba(240, 165, 0, 0.38);
+  background: rgba(20, 20, 24, 0.98);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.36);
+  color: var(--foreground);
+  font-family: system-ui, sans-serif;
+  backdrop-filter: blur(18px) saturate(140%);
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.site-disclaimer[hidden] {
+  display: none;
+}
+
+.site-disclaimer__content {
+  min-width: 0;
+  max-width: 960px;
+}
+
+.site-disclaimer__title,
+.site-disclaimer__text {
+  margin: 0;
+}
+
+.site-disclaimer__title {
+  color: #ffd47a;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.site-disclaimer__text {
+  margin-top: 5px;
+  color: #d0d0d6;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.site-disclaimer__dismiss {
+  flex: 0 0 auto;
+  padding: 8px 13px;
+  border: 1px solid rgba(240, 165, 0, 0.65);
+  border-radius: 999px;
+  background: rgba(240, 165, 0, 0.12);
+  color: #ffd47a;
+  font: 600 0.78rem/1 system-ui, sans-serif;
+  cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.site-disclaimer__dismiss:hover,
+.site-disclaimer__dismiss:focus-visible {
+  background: var(--accent);
+  color: #171717;
+  transform: translateY(-1px);
+}
+
+.site-disclaimer__dismiss:focus-visible {
+  outline: 2px solid var(--memory-highlight);
+  outline-offset: 3px;
+}
+
 main {
   flex: 1;
   padding: 24px clamp(16px, 3vw, 48px) 28px;
@@ -351,6 +423,18 @@ main {
 
 .code-line--scope-closing .code {
   animation: scope-close-pulse 520ms ease-out;
+}
+
+.code-line--memory-error {
+  border-left: 3px solid #ff6b6b;
+  border-radius: 4px;
+  background: rgba(255, 107, 107, 0.1);
+  color: #ffd0d0;
+}
+
+.code-line--memory-error .code {
+  color: #ffd0d0;
+  text-shadow: 0 0 12px rgba(255, 107, 107, 0.35);
 }
 
 @keyframes return-value-pulse {
@@ -905,8 +989,174 @@ main {
 }
 
 .memory-block--freed {
-  border-color: var(--muted);
-  opacity: 0.48;
+  border: 2px dashed #a8a8ad;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(189, 189, 189, 0.08) 0,
+      rgba(189, 189, 189, 0.08) 5px,
+      transparent 5px,
+      transparent 11px
+    ),
+    #1b1b20;
+  box-shadow:
+    0 0 0 1px rgba(189, 189, 189, 0.12),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  filter: none;
+  opacity: 1;
+}
+
+.memory-block--freed::before {
+  content: "FREE";
+  position: absolute;
+  inset: 0 0 50%;
+  z-index: 5;
+  display: grid;
+  place-items: end center;
+  padding-bottom: 2px;
+  border-radius: inherit;
+  background: rgba(30, 30, 36, 0.97);
+  color: var(--accent);
+  font-family: system-ui, sans-serif;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-align: center;
+  pointer-events: none;
+}
+
+.memory-block--freed::after {
+  content: "MEMORIA LIBERADA";
+  position: absolute;
+  inset: 50% 0 0;
+  height: auto;
+  z-index: 5;
+  display: grid;
+  place-items: start center;
+  padding-top: 2px;
+  border-radius: inherit;
+  background: rgba(30, 30, 36, 0.97);
+  color: #d6d6da;
+  font-family: system-ui, sans-serif;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-align: center;
+  box-shadow: none;
+  animation: none;
+  pointer-events: none;
+}
+
+.memory-block--freed .memory-block__address,
+.memory-block--freed .memory-block__value,
+.memory-block--freed .memory-block__fields,
+.memory-block--freed .memory-block__frame,
+.memory-block--freed .memory-block__alias {
+  display: none;
+}
+
+.memory-block--freed .memory-block__name {
+  color: var(--muted);
+}
+
+.memory-block--freed .memory-field__alias {
+  display: none;
+}
+
+.memory-block--freed .memory-field__address {
+  display: none;
+}
+
+.memory-block--freed .memory-field__value {
+  display: none;
+}
+
+.memory-block--freed .memory-field__name {
+  display: none;
+}
+
+.memory-block--freed .memory-block__name {
+  opacity: 0.82;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.memory-block__state {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 4;
+  padding: 3px 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-family: system-ui, sans-serif;
+  font-size: 0.54rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.memory-block--fields .memory-block__state {
+  top: -49px;
+  right: 0;
+}
+
+.memory-block--dangling {
+  border-color: #ff6b6b;
+  box-shadow: 0 0 0 1px rgba(255, 107, 107, 0.55), 0 0 18px rgba(255, 107, 107, 0.28);
+}
+
+.memory-block--dangling .memory-block__state,
+.memory-field--dangling .memory-field__value {
+  color: #ff8585;
+}
+
+.memory-block--dangling .memory-block__value {
+  color: #ff8585;
+}
+
+.memory-block--unreachable {
+  border-color: #bd8cff;
+  box-shadow: 0 0 0 1px rgba(189, 140, 255, 0.5), 0 0 18px rgba(189, 140, 255, 0.24);
+}
+
+.memory-block--unreachable .memory-block__state {
+  color: #d0adff;
+}
+
+.memory-block.memory-block--memory-error-target {
+  border-color: #ff6b6b;
+  box-shadow: 0 0 0 2px rgba(255, 107, 107, 0.72), 0 0 24px rgba(255, 107, 107, 0.4);
+  animation: memory-error-pulse 760ms ease-out;
+}
+
+.status--memory-error {
+  color: #ff9b9b;
+  font-weight: 700;
+  text-shadow: 0 0 12px rgba(255, 107, 107, 0.32);
+}
+
+@keyframes memory-error-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+
+  45% {
+    filter: brightness(1.35);
+  }
+}
+
+.memory-field--dangling {
+  border-color: rgba(255, 107, 107, 0.58);
+}
+
+.memory-block--freed .memory-block__state {
+  display: none;
 }
 
 .trace-memory {
@@ -921,6 +1171,37 @@ main {
 
 .memory-sequence-stage--trace {
   min-width: 0;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+  cursor: grab;
+  touch-action: pan-x;
+  overscroll-behavior: contain;
+}
+
+.memory-sequence-stage--trace.memory-sequence-stage--scrollable {
+  overflow-x: auto;
+}
+
+.memory-sequence-stage--trace.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.memory-sequence-stage--trace::before {
+  right: auto;
+  width: var(--memory-content-width, 100%);
+}
+
+.memory-sequence-stage--trace > .memory-line {
+  right: auto;
+  width: var(--memory-content-width, 100%);
+}
+
+.memory-sequence-stage--trace > .memory-scope-rails {
+  right: auto;
+  width: var(--memory-content-width, 100%);
 }
 
 .memory-pointer-arrows {
@@ -942,8 +1223,32 @@ main {
   opacity: 0.9;
 }
 
+.memory-pointer-arrow--dangling {
+  stroke: #ff6b6b;
+}
+
 .memory-pointer-arrowhead {
   fill: var(--memory-highlight);
+}
+
+.memory-pointer-arrowhead--dangling {
+  fill: #ff6b6b;
+}
+
+.memory-pointer-arrow--changed {
+  animation: memory-pointer-arrow-change 520ms cubic-bezier(0.22, 0.8, 0.25, 1);
+}
+
+@keyframes memory-pointer-arrow-change {
+  from {
+    stroke-dashoffset: 18;
+    opacity: 0;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
 }
 
 .memory-scope-rails {
@@ -971,13 +1276,13 @@ main {
 .memory-scope-rail::before {
   content: attr(data-scope-label);
   position: absolute;
-  top: -24px;
-  left: 50%;
+  top: -12px;
+  left: -6px;
   color: var(--muted);
   font-family: system-ui, sans-serif;
   font-size: 0.7rem;
   white-space: nowrap;
-  transform: translateX(-50%);
+  transform: translateX(-100%);
 }
 
 .trace-memory .memory-block__frame {
@@ -1096,6 +1401,61 @@ main {
   box-shadow: 0 0 10px var(--change-glow), 0 0 18px var(--change-glow);
   pointer-events: none;
   animation: memory-change-underline 360ms cubic-bezier(0.22, 0.8, 0.25, 1);
+}
+
+/* A released block is no longer a normal change: keep its whole node marked
+   in red and restore the release label after the generic change indicator. */
+.memory-block--freed {
+  border: 2px dashed #ff6b6b;
+  border-bottom: 2px dashed #ff6b6b;
+  box-shadow: 0 0 0 1px rgba(255, 107, 107, 0.55), 0 0 18px rgba(255, 107, 107, 0.28);
+}
+
+.memory-block--freed::before {
+  background: transparent;
+  color: #ff6b6b;
+}
+
+.memory-block--freed::after {
+  content: "MEMORIA LIBERADA";
+  position: absolute;
+  inset: 50% 0 0;
+  z-index: 5;
+  display: grid;
+  place-items: start center;
+  padding-top: 2px;
+  border-radius: inherit;
+  background: transparent;
+  color: #ffb0b0;
+  font-family: system-ui, sans-serif;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-align: center;
+  pointer-events: none;
+}
+
+.memory-block--freed .memory-block__name {
+  color: #ffb0b0;
+}
+
+.memory-block__release-marker {
+  display: none;
+}
+
+.memory-block--freed .memory-block__release-marker {
+  position: absolute;
+  right: 5px;
+  bottom: -9px;
+  left: 5px;
+  z-index: 3;
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: #ff6b6b;
+  box-shadow: 0 0 10px rgba(255, 107, 107, 0.42), 0 0 18px rgba(255, 107, 107, 0.3);
+  pointer-events: none;
 }
 
 @keyframes memory-change-underline {
@@ -1551,8 +1911,51 @@ main {
   transform: scale(0.97);
 }
 
+.share-button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--foreground);
+  font: 650 0.88rem/1 system-ui, sans-serif;
+  cursor: pointer;
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.share-button:hover,
+.share-button:focus-visible {
+  border-color: rgba(114, 217, 255, 0.65);
+  background: rgba(114, 217, 255, 0.12);
+  transform: translateY(-1px);
+}
+
+.share-button:active {
+  transform: scale(0.97);
+}
+
+.share-icon {
+  display: inline-flex;
+}
+
+.share-icon .lucide {
+  width: 16px;
+  height: 16px;
+}
+
 .editor-actions .status {
   color: var(--muted);
+}
+
+.share-status {
+  min-width: 0;
+  margin: 0;
+  color: var(--muted);
+  font: 0.78rem/1.35 system-ui, sans-serif;
 }
 
 #memory-examples[hidden] {
@@ -1964,6 +2367,20 @@ button:focus-visible {
   color: #a45e00 !important;
 }
 
+:root[data-theme="light"] .site-disclaimer {
+  border-color: rgba(164, 94, 0, 0.32);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 50px rgba(50, 50, 60, 0.18);
+}
+
+:root[data-theme="light"] .site-disclaimer__title {
+  color: #8a5000;
+}
+
+:root[data-theme="light"] .site-disclaimer__text {
+  color: #55555d;
+}
+
 :root[data-theme="light"] .editor-panel,
 :root[data-theme="light"] .trace-pane,
 :root[data-theme="light"] .memory-pane {
@@ -2184,6 +2601,10 @@ button:focus-visible {
     width: 100%;
   }
 
+  .share-button {
+    width: 100%;
+  }
+
   .reset-button {
     right: 16px;
     bottom: 16px;
@@ -2239,7 +2660,7 @@ main.is-execution-focused #memory-examples {
 }
 
 .trace-example.is-execution-focused .memory-sequence-stage--trace {
-  height: 150px;
+  height: 180px;
 }
 
 .trace-example.is-execution-focused .memory-sequence-stage--trace::before {
@@ -2464,9 +2885,23 @@ body.is-execution-active {
   overflow: hidden;
 }
 
+html:has(body.is-execution-active),
+html:has(body.is-focus-transitioning) {
+  overflow: hidden;
+}
+
 body.is-execution-active .site-header,
 body.is-execution-active .editor-panel,
 body.is-execution-active .site-footer {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.is-focus-transitioning .site-disclaimer,
+body.is-execution-entering .site-disclaimer,
+body.is-execution-active .site-disclaimer,
+body.is-execution-leaving .site-disclaimer {
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
@@ -2497,18 +2932,34 @@ body.is-focus-transitioning .floating-actions {
   border-radius: 0;
 }
 
-@media (max-width: 860px) {
+/* Use the vertical execution layout before the compact desktop split starts
+   squeezing the code and its play control. */
+@media (max-width: 900px) {
+  body.is-execution-active {
+    overflow: hidden;
+  }
+
+  main.is-execution-focused {
+    min-height: 100dvh;
+    padding: 0;
+  }
+
   .trace-example.is-execution-focused {
     width: 100%;
     height: auto;
-    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: auto;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(280px, 1fr) max-content;
+    align-content: start;
   }
 
   .trace-example.is-execution-focused .trace-pane,
   .trace-example.is-execution-focused .memory-pane {
     grid-column: 1;
+    height: auto;
+    min-height: 0;
+    border-radius: 0;
   }
 
   .trace-example.is-execution-focused .trace-splitter {
@@ -2517,11 +2968,64 @@ body.is-focus-transitioning .floating-actions {
 
   .trace-example.is-execution-focused .trace-pane {
     grid-row: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    row-gap: 12px;
+    padding: 16px 14px;
+    overflow: hidden;
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
 
+  .trace-example.is-execution-focused .trace-controls {
+    position: static;
+    grid-column: 1;
+    grid-row: 1;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .trace-example.is-execution-focused .trace-pane > .code-sequence {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 0;
+    margin-bottom: 0;
+    overflow: auto;
+  }
+
   .trace-example.is-execution-focused .memory-pane {
     grid-row: 2;
+    align-self: start;
+    height: auto;
+    padding: 18px 14px 24px;
+    justify-content: flex-start;
+    overflow: auto;
+  }
+
+  .trace-example.is-execution-focused .trace-memory {
+    gap: 24px;
+  }
+
+  .trace-example.is-execution-focused .memory-sequence-stage--trace {
+    flex: 0 0 auto;
+  }
+
+  .trace-example.is-execution-focused .trace-control {
+    width: 34px;
+    height: 32px;
+  }
+}
+
+@media (max-width: 600px) {
+  .site-disclaimer {
+    display: block;
+    padding: 14px 16px;
+  }
+
+  .site-disclaimer__dismiss {
+    width: 100%;
+    margin-top: 12px;
   }
 }

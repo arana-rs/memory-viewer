@@ -6,9 +6,17 @@ import { setIcon } from './icons';
 
 const normalizeArea = (area = 'STACK') => String(area).toUpperCase();
 
+const memoryStateLabel = ({ freed = false, pointerState = null, unreachable = false } = {}) => {
+  if (freed) return '';
+  if (pointerState === 'dangling') return 'DANGLING POINTER';
+  if (unreachable) return 'UNREACHABLE MEMORY';
+  return '';
+};
+
 let accessibilityPreferences = {
-  highlightChanges: false,
-  pointerArrows: false
+  highlightChanges: true,
+  pointerArrows: false,
+  pointerArrowsExplicit: false
 };
 let activeAccessibilityRefresh = null;
 
@@ -72,6 +80,8 @@ export function createMemoryBlock({
   fields = [],
   size = 4,
   freed = false,
+  pointerState = null,
+  unreachable = false,
   steps = {}
 } = {}) {
   const normalizedArea = normalizeArea(area);
@@ -83,7 +93,20 @@ export function createMemoryBlock({
   block.dataset.memorySize = String(size);
   block.dataset.memoryFrameId = frameId;
   block.classList.toggle('memory-block--freed', freed);
-  block.setAttribute('aria-label', `${normalizedArea}: ${name || 'bloque de memoria'}`);
+  block.classList.toggle('memory-block--dangling', pointerState === 'dangling');
+  block.classList.toggle('memory-block--unreachable', unreachable);
+  block.dataset.memoryState = freed
+    ? 'freed'
+    : pointerState === 'dangling'
+      ? 'dangling'
+      : unreachable
+        ? 'unreachable'
+        : 'allocated';
+  const stateLabel = memoryStateLabel({ freed, pointerState, unreachable });
+  block.setAttribute(
+    'aria-label',
+    `${normalizedArea}: ${name || 'bloque de memoria'}${freed ? ', liberado' : ''}${pointerState === 'dangling' ? ', puntero colgante' : ''}${unreachable ? ', memoria inalcanzable' : ''}`
+  );
 
   const addressElement = document.createElement('span');
   addressElement.className = 'memory-block__address';
@@ -121,6 +144,8 @@ export function createMemoryBlock({
       fieldElement.className = 'memory-block__field';
       fieldElement.dataset.memoryFieldName = field.name;
       fieldElement.dataset.memoryFieldId = field.id ?? '';
+      fieldElement.classList.toggle('memory-field--dangling', field.pointerState === 'dangling');
+      fieldElement.dataset.memoryState = field.pointerState === 'dangling' ? 'dangling' : 'allocated';
 
       const fieldName = document.createElement('span');
       fieldName.className = 'memory-field__name';
@@ -149,6 +174,18 @@ export function createMemoryBlock({
     });
     block.append(fieldsElement);
   }
+
+  const stateElement = document.createElement('span');
+  stateElement.className = 'memory-block__state';
+  stateElement.textContent = stateLabel;
+  stateElement.hidden = !stateLabel;
+  stateElement.setAttribute('aria-hidden', 'true');
+  block.append(stateElement);
+
+  const releaseMarker = document.createElement('span');
+  releaseMarker.className = 'memory-block__release-marker';
+  releaseMarker.setAttribute('aria-hidden', 'true');
+  block.append(releaseMarker);
 
   const allAliases = alias ? [alias, ...aliases] : aliases;
   allAliases.forEach((text, index) => {
@@ -548,7 +585,10 @@ export function bindMemorySequence({
   const positionPlayButton = (targetLine: HTMLElement | undefined, animate = true) => {
     const visibleTarget = resolveVisibleLine(targetLine);
     if (!visibleTarget) return;
-    const targetTop = visibleTarget.offsetTop + (visibleTarget.offsetHeight - playButton.offsetHeight) / 2;
+    const targetRect = visibleTarget.getBoundingClientRect();
+    const sequenceRect = codeSequence.getBoundingClientRect();
+    const targetTop = targetRect.top - sequenceRect.top
+      + (targetRect.height - playButton.offsetHeight) / 2;
     const currentTop = playButton.offsetTop;
     const deltaY = currentTop - targetTop;
 
@@ -774,6 +814,11 @@ export function createTraceSequence({
   const example = document.createElement('section');
   example.className = 'example trace-example';
   example.setAttribute('aria-labelledby', `${id}-title`);
+  const largestMemorySnapshot = Math.max(
+    0,
+    ...instructions.map((instruction) => snapshotItems(instruction.memory).length)
+  );
+  example.dataset.pointerArrowsDefault = String(largestMemorySnapshot <= 8);
 
   const tracePane = document.createElement('section');
   tracePane.className = 'trace-pane';
@@ -840,6 +885,7 @@ export function createTraceSequence({
     line.dataset.indent = String(descriptor.indent ?? instruction?.indent ?? 0);
     if (instruction?.kind) line.dataset.stepKind = instruction.kind;
     if (instruction?.kind === 'return') line.classList.add('code-line--return');
+    if (instruction?.kind === 'memory-error') line.classList.add('code-line--memory-error');
     if (descriptor.functionGroup) line.dataset.functionGroup = descriptor.functionGroup;
     const isFunctionCollapsed = descriptor.functionGroup
       && collapsedFunctionNames.includes(descriptor.functionGroup);
@@ -859,7 +905,8 @@ export function createTraceSequence({
     line.append(codeElement);
     if (isImplicitLine) dynamicLineFallbacks.set(line, codeElement.cloneNode(true));
     if (descriptor.functionHeader && descriptor.collapsible) {
-      const functionNameToken = codeElement.querySelector('.cpp-identifier');
+      const functionNameToken = [...codeElement.querySelectorAll('.cpp-identifier')]
+        .find((token) => token.textContent === descriptor.functionHeader);
       if (functionNameToken) {
         functionNameToken.classList.add('function-toggle-name');
         functionNameToken.setAttribute('role', 'button');
@@ -1046,6 +1093,7 @@ export function createTraceSequence({
 export function bindTraceSequence({
   lines,
   stepLines = lines,
+  codeSequence,
   playButton,
   stepBackButton,
   stepForwardButton,
@@ -1075,8 +1123,10 @@ export function bindTraceSequence({
   const holdThreshold = reducedMotion ? 0 : 320;
   let lastMemoryItems = new Map();
   let lastChangedBlocks = new Map();
+  let previousArrowTargets = new Map();
   let refreshAccessibility = () => {};
   let splitRatio = 50;
+  let activeStepCompletion = null;
 
   const updateSplitRatio = (nextRatio) => {
     splitRatio = Math.max(20, Math.min(80, nextRatio));
@@ -1133,13 +1183,64 @@ export function bindTraceSequence({
     });
   }
 
+  const bindStagePanning = (stage) => {
+    let pan = null;
+
+    const stopPanning = () => {
+      if (!pan) return;
+      pan = null;
+      stage.classList.remove('is-panning');
+    };
+
+    stage.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || stage.scrollWidth <= stage.clientWidth) return;
+      if (event.target.closest?.('.memory-block')) return;
+
+      pan = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startScrollLeft: stage.scrollLeft
+      };
+      stage.classList.add('is-panning');
+      stage.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+
+    stage.addEventListener('pointermove', (event) => {
+      if (!pan || event.pointerId !== pan.pointerId) return;
+      stage.scrollLeft = pan.startScrollLeft - (event.clientX - pan.startX);
+    });
+    stage.addEventListener('pointerup', stopPanning);
+    stage.addEventListener('pointercancel', stopPanning);
+    stage.addEventListener('lostpointercapture', stopPanning);
+    stage.addEventListener('wheel', (event) => {
+      const maxScrollLeft = stage.scrollWidth - stage.clientWidth;
+      if (maxScrollLeft <= 0) return;
+
+      // Memory rows scroll horizontally, so a regular mouse wheel should
+      // move the row instead of attempting to introduce vertical scrolling.
+      const delta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
+      if (delta === 0) return;
+
+      stage.scrollLeft = Math.max(0, Math.min(maxScrollLeft, stage.scrollLeft + delta));
+      event.preventDefault();
+    }, { passive: false });
+  };
+
+  stages.forEach(({ stage }) => bindStagePanning(stage));
+
   const syncTraceControls = () => {
     if (stepBackButton) stepBackButton.disabled = isRunning || currentStep === 0;
-    if (stepForwardButton) stepForwardButton.disabled = isRunning || currentStep >= instructions.length;
+    if (stepForwardButton) stepForwardButton.disabled = currentStep >= instructions.length;
     if (autoPlayButton) {
-      autoPlayButton.disabled = currentStep >= instructions.length;
+      autoPlayButton.disabled = false;
       autoPlayButton.classList.toggle('is-active', autoRunActive);
-      const label = autoRunActive ? 'Detener ejecución automática' : 'Ejecutar automáticamente';
+      setIcon(autoPlayButton, autoRunActive ? 'square' : 'chevrons-right');
+      const label = currentStep >= instructions.length
+        ? 'Reiniciar ejecución automática'
+        : autoRunActive
+          ? 'Detener ejecución automática'
+          : 'Ejecutar automáticamente';
       autoPlayButton.setAttribute('aria-label', label);
       autoPlayButton.title = label;
     }
@@ -1177,6 +1278,30 @@ export function bindTraceSequence({
     return { functionName, closeIndex };
   };
 
+  const collapsedFunctionStart = (endIndex) => {
+    const instruction = instructions[endIndex];
+    if (!instruction
+      || !((instruction.kind === 'scope-close' && instruction.scopeKind === 'function')
+        || (instruction.kind === 'return' && instruction.functionReturn))) {
+      return null;
+    }
+
+    const functionName = stepLines[endIndex]?.dataset.functionGroup;
+    if (!functionName) return null;
+    const toggle = functionToggleNames.find((candidate) => (
+      candidate.closest('.code-line')?.dataset.functionHeader === functionName
+      && candidate.getAttribute('aria-expanded') === 'false'
+    ));
+    if (!toggle) return null;
+
+    for (let index = endIndex - 1; index >= 0; index -= 1) {
+      const candidate = instructions[index];
+      if (candidate.kind !== 'scope-open' || candidate.scopeKind !== 'function') continue;
+      if (candidate.scopeId === instruction.scopeId) return index;
+    }
+    return null;
+  };
+
   const syncScopeRails = (stageData, scopes) => {
     if (!stageData.scopeRails) return;
 
@@ -1208,7 +1333,10 @@ export function bindTraceSequence({
       // layout targets instead of an in-between getBoundingClientRect value,
       // so the rail and the blocks animate toward the same destination.
       const stageRect = stageData.stage.getBoundingClientRect();
-      const stageWidth = stageRect.width || stageData.stage.clientWidth || 680;
+      const contentWidth = Number.parseFloat(
+        stageData.stage.style.getPropertyValue('--memory-content-width')
+      );
+      const stageWidth = contentWidth || stageRect.width || stageData.stage.clientWidth || 680;
       const blockEdges = (block) => {
         const targetCenter = Number.parseFloat(block.style.left);
         const targetWidth = Number.parseFloat(block.style.width);
@@ -1224,30 +1352,45 @@ export function bindTraceSequence({
           right: rect.right - stageRect.left
         };
       };
-      const firstBlockLeft = referenceBlocks.length > 0
-        ? Math.min(...referenceBlocks.map((block) => blockEdges(block).left))
-        : null;
       const isContiguous = stageData.stage.classList.contains('memory-sequence-stage--trace');
-      const boundaryOffset = isContiguous ? 20 : 18;
       const depth = Number(scope.scopeDepth ?? index);
-      const depthOffset = depth * (isContiguous ? 4 : 12);
-      const externalBlocks = visibleBlocks.filter((block) => !ownedBlocks.includes(block));
-      const previousBlockRight = externalBlocks.length > 0
-        ? Math.max(...externalBlocks.map((block) => blockEdges(block).right))
+      const depthOffset = isContiguous ? 0 : depth * 12;
+      const sortedVisible = visibleBlocks
+        .map((block) => ({ block, edges: blockEdges(block) }))
+        .sort((first, second) => first.edges.left - second.edges.left);
+      const sortedOwned = sortedVisible.filter(({ block }) => ownedBlocks.includes(block));
+      const firstOwned = sortedOwned[0]?.edges ?? null;
+      const lastOwned = sortedOwned.at(-1)?.edges ?? null;
+      const previousVisible = firstOwned
+        ? [...sortedVisible]
+          .reverse()
+          .find(({ block, edges }) => !ownedBlocks.includes(block) && edges.right <= firstOwned.left + 1)
         : null;
-      const boundary = scope.kind === 'function'
-        ? ownedBlocks.length > 0
-          ? depth > 0 && previousBlockRight !== null
-            ? previousBlockRight + boundaryOffset
-            : firstBlockLeft - boundaryOffset
-          : depth > 0 && visibleBlocks.length > 0
-            ? Math.max(...visibleBlocks.map((block) => blockEdges(block).right)) + boundaryOffset
-            : (firstBlockLeft === null ? stageWidth / 2 + depthOffset : firstBlockLeft - boundaryOffset)
-        : referenceBlocks.length > 0
-          ? (ownedBlocks.length > 0
-          ? firstBlockLeft - boundaryOffset + depthOffset
-          : Math.max(...referenceBlocks.map((block) => blockEdges(block).right)) + boundaryOffset + depthOffset)
-        : 18 + depthOffset;
+      const nextVisible = lastOwned
+        ? sortedVisible.find(({ block, edges }) => !ownedBlocks.includes(block) && edges.left >= lastOwned.right - 1)
+        : null;
+      const previousGap = previousVisible && firstOwned
+        ? Math.max(0, firstOwned.left - previousVisible.edges.right)
+        : null;
+      const nextGap = nextVisible && lastOwned
+        ? Math.max(0, nextVisible.edges.left - lastOwned.right)
+        : null;
+      const defaultGap = isContiguous ? 20 : 18;
+      const boundaryGap = previousGap ?? nextGap ?? defaultGap;
+      const referenceEdges = referenceBlocks.map((block) => blockEdges(block));
+      const firstBlockLeft = referenceEdges.length > 0
+        ? Math.min(...referenceEdges.map((edges) => edges.left))
+        : null;
+      const referenceBlockRight = referenceEdges.length > 0
+        ? Math.max(...referenceEdges.map((edges) => edges.right))
+        : null;
+      const boundary = firstOwned
+        ? previousVisible && previousGap !== null
+          ? previousVisible.edges.right + previousGap / 2 + depthOffset
+          : firstOwned.left - boundaryGap / 2 + depthOffset
+        : referenceBlockRight !== null
+          ? referenceBlockRight + boundaryGap / 2 + depthOffset
+          : (firstBlockLeft === null ? stageWidth / 2 + depthOffset : firstBlockLeft - boundaryGap / 2);
       rail.style.left = `${Math.max(8, Math.min(stageWidth - 8, boundary))}px`;
       rail.style.setProperty('--scope-depth', String(scope.scopeDepth ?? index));
       rail.dataset.scopeLabel = scope.label;
@@ -1265,9 +1408,10 @@ export function bindTraceSequence({
     const frameGap = isContiguous ? 40 : gap;
     const scopeGutter = isContiguous ? 0 : (scopeRails ? 26 : 0);
     const sideInset = isContiguous ? 20 : 0;
+    const viewportWidth = stage.clientWidth || 680;
     const availableWidth = Math.max(
       0,
-      (stage.clientWidth || 680) - scopeGutter - sideInset * 2
+      viewportWidth - scopeGutter - sideInset * 2
     );
     const count = Math.max(visible.length, 1);
     const gaps = visible.slice(0, -1).map((block, index) => (
@@ -1278,11 +1422,23 @@ export function bindTraceSequence({
         ? frameGap
         : gap
     ));
-    const width = Math.min(180, Math.max(48, (
+    const minimumBlockWidth = visible.some((block) => block.classList.contains('memory-block--fields'))
+      ? 180
+      : 112;
+    const width = Math.min(180, Math.max(minimumBlockWidth, (
       availableWidth - gaps.reduce((total, value) => total + value, 0)
     ) / count));
     const rowWidth = visible.length * width + gaps.reduce((total, value) => total + value, 0);
-    const start = sideInset + scopeGutter + (availableWidth - rowWidth) / 2;
+    const contentWidth = Math.max(
+      viewportWidth,
+      rowWidth + scopeGutter + sideInset * 2
+    );
+    const isScrollable = contentWidth > viewportWidth + 1;
+    stage.style.setProperty('--memory-content-width', `${contentWidth}px`);
+    stage.classList.toggle('memory-sequence-stage--scrollable', isScrollable);
+    const start = isScrollable
+      ? sideInset + scopeGutter
+      : sideInset + scopeGutter + (availableWidth - rowWidth) / 2;
 
     let offset = 0;
     visible.forEach((block, index) => {
@@ -1309,6 +1465,9 @@ export function bindTraceSequence({
         refreshScopeRails(stageData, activeScopes);
       }
     });
+    const targetIndex = Math.min(currentStep, Math.max(instructions.length - 1, 0));
+    const targetLine = stepLines[targetIndex];
+    if (targetLine) positionPlayButton(resolveVisibleLine(targetLine), false);
     window.requestAnimationFrame(refreshAccessibility);
   };
 
@@ -1342,9 +1501,30 @@ export function bindTraceSequence({
     if (frame) frame.textContent = item.frameLabel ?? '';
 
     block.classList.toggle('memory-block--freed', Boolean(item.freed));
+    block.classList.toggle('memory-block--dangling', item.pointerState === 'dangling');
+    block.classList.toggle('memory-block--unreachable', Boolean(item.unreachable));
+    block.dataset.memoryState = item.freed
+      ? 'freed'
+      : item.pointerState === 'dangling'
+        ? 'dangling'
+        : item.unreachable
+          ? 'unreachable'
+          : 'allocated';
+    const stateLabel = memoryStateLabel(item);
+    const stateElement = block.querySelector('.memory-block__state');
+    if (stateElement) {
+      stateElement.textContent = stateLabel;
+      stateElement.hidden = !stateLabel;
+    }
+    block.setAttribute(
+      'aria-label',
+      `${item.area}: ${item.name}${item.freed ? ', liberado' : ''}${item.pointerState === 'dangling' ? ', puntero colgante' : ''}${item.unreachable ? ', memoria inalcanzable' : ''}`
+    );
     block.querySelectorAll('.memory-block__field').forEach((fieldElement) => {
       const field = item.fields?.find((candidate) => candidate.name === fieldElement.dataset.memoryFieldName);
       if (!field) return;
+      fieldElement.classList.toggle('memory-field--dangling', field.pointerState === 'dangling');
+      fieldElement.dataset.memoryState = field.pointerState === 'dangling' ? 'dangling' : 'allocated';
       fieldElement.querySelector('.memory-field__name').textContent = field.name;
       fieldElement.querySelector('.memory-field__value').textContent = field.value;
       fieldElement.querySelector('.memory-field__address').textContent = field.address;
@@ -1405,7 +1585,14 @@ export function bindTraceSequence({
   const refreshPointerArrows = () => {
     if (!pointerArrows) return;
     pointerArrows.replaceChildren();
-    if (!accessibilityPreferences.pointerArrows || lastMemoryItems.size === 0) return;
+    const example = memory.closest('.trace-example');
+    const arrowsEnabled = accessibilityPreferences.pointerArrows
+      || (!accessibilityPreferences.pointerArrowsExplicit
+        && example?.dataset.pointerArrowsDefault === 'true');
+    if (!arrowsEnabled || lastMemoryItems.size === 0) {
+      previousArrowTargets = new Map();
+      return;
+    }
 
     const rootRect = memory.getBoundingClientRect();
     const width = Math.max(1, rootRect.width);
@@ -1414,43 +1601,66 @@ export function bindTraceSequence({
 
     const svgNamespace = 'http://www.w3.org/2000/svg';
     const defs = document.createElementNS(svgNamespace, 'defs');
-    const marker = document.createElementNS(svgNamespace, 'marker');
-    marker.id = 'memory-pointer-arrowhead';
-    marker.setAttribute('markerWidth', '8');
-    marker.setAttribute('markerHeight', '8');
-    marker.setAttribute('refX', '7');
-    marker.setAttribute('refY', '4');
-    marker.setAttribute('orient', 'auto');
-    marker.setAttribute('markerUnits', 'strokeWidth');
-    const markerPath = document.createElementNS(svgNamespace, 'path');
-    markerPath.setAttribute('d', 'M 0 0 L 8 4 L 0 8 z');
-    markerPath.classList.add('memory-pointer-arrowhead');
-    marker.append(markerPath);
-    defs.append(marker);
+    const createMarker = (id, className) => {
+      const marker = document.createElementNS(svgNamespace, 'marker');
+      marker.id = id;
+      marker.setAttribute('markerWidth', '8');
+      marker.setAttribute('markerHeight', '8');
+      marker.setAttribute('refX', '7');
+      marker.setAttribute('refY', '4');
+      marker.setAttribute('orient', 'auto');
+      marker.setAttribute('markerUnits', 'strokeWidth');
+      const markerPath = document.createElementNS(svgNamespace, 'path');
+      markerPath.setAttribute('d', 'M 0 0 L 8 4 L 0 8 z');
+      markerPath.classList.add('memory-pointer-arrowhead', className);
+      marker.append(markerPath);
+      defs.append(marker);
+    };
+    createMarker('memory-pointer-arrowhead', 'memory-pointer-arrowhead--normal');
+    createMarker('memory-pointer-arrowhead-dangling', 'memory-pointer-arrowhead--dangling');
     pointerArrows.append(defs);
 
     const elements = memoryElementById();
     const sources = [];
     lastMemoryItems.forEach((item) => {
+      // Released blocks keep their historical fields for rewind, but those
+      // fields are intentionally hidden and must not originate new arrows.
+      if (item.freed) return;
       if (isPointerType(item.type) && item.pointerTargetId) {
-        sources.push({ sourceId: item.id, targetId: item.pointerTargetId });
+        sources.push({
+          sourceId: item.id,
+          targetId: item.pointerTargetId,
+          pointerState: item.pointerState
+        });
       }
       item.fields?.forEach((field) => {
         if (isPointerType(field.type) && field.pointerTargetId) {
-          sources.push({ sourceId: field.id, targetId: field.pointerTargetId });
+          sources.push({
+            sourceId: field.id,
+            targetId: field.pointerTargetId,
+            pointerState: field.pointerState
+          });
         }
       });
     });
 
-    sources.forEach(({ sourceId, targetId }) => {
+    const nextArrowTargets = new Map();
+    sources.forEach(({ sourceId, targetId, pointerState }) => {
+      nextArrowTargets.set(sourceId, targetId);
       const sourceElement = elements.get(sourceId);
       const targetElement = elements.get(targetId);
       if (!sourceElement || !targetElement) return;
       if (!sourceElement.closest('.is-drawn') || !targetElement.closest('.is-drawn')) return;
+      const isDangling = pointerState === 'dangling'
+        || targetElement.closest('.memory-block--freed');
 
       const sourceValue = sourceElement.classList.contains('memory-block__field')
         ? sourceElement.querySelector('.memory-field__value')
         : sourceElement.querySelector('.memory-block__value');
+      const sourceRect = (sourceValue ?? sourceElement).getBoundingClientRect();
+      const targetRect = targetElement.getBoundingClientRect();
+      if (sourceRect.width <= 0 || sourceRect.height <= 0
+        || targetRect.width <= 0 || targetRect.height <= 0) return;
       const sourcePoint = elementPoint(sourceValue ?? sourceElement, rootRect, 'right');
       const targetPoint = elementPoint(targetElement, rootRect, 'center');
       if (!sourcePoint || !targetPoint) return;
@@ -1459,13 +1669,22 @@ export function bindTraceSequence({
       const bend = Math.max(28, Math.abs(targetPoint.x - sourcePoint.x) * 0.34);
       const path = document.createElementNS(svgNamespace, 'path');
       path.classList.add('memory-pointer-arrow');
+      if (isDangling) path.classList.add('memory-pointer-arrow--dangling');
+      if (previousArrowTargets.has(sourceId)
+        && previousArrowTargets.get(sourceId) !== targetId) {
+        path.classList.add('memory-pointer-arrow--changed');
+      }
       path.setAttribute(
         'd',
         `M ${sourcePoint.x} ${sourcePoint.y} C ${sourcePoint.x + direction * bend} ${sourcePoint.y}, ${targetPoint.x - direction * bend} ${targetPoint.y}, ${targetPoint.x} ${targetPoint.y}`
       );
-      path.setAttribute('marker-end', 'url(#memory-pointer-arrowhead)');
+      path.setAttribute(
+        'marker-end',
+        `url(#${isDangling ? 'memory-pointer-arrowhead-dangling' : 'memory-pointer-arrowhead'})`
+      );
       pointerArrows.append(path);
     });
+    previousArrowTargets = nextArrowTargets;
   };
 
   const refreshChangeHighlights = () => {
@@ -1479,6 +1698,7 @@ export function bindTraceSequence({
       const block = [...stages.values()]
         .flatMap((stageData) => [...stageData.blocks.entries()])
         .find(([id]) => id === itemId)?.[1];
+      if (lastMemoryItems.get(itemId)?.freed) return;
       block?.classList.add(kind === 'created' ? 'memory-block--created' : 'memory-block--modified');
     });
   };
@@ -1491,6 +1711,12 @@ export function bindTraceSequence({
 
   const applySnapshot = (snapshot) => {
     const next = new Map(snapshotItems(snapshot).map((item) => [item.id, item]));
+    const visibleFreedHeapIds = new Set(
+      [...next.values()]
+        .filter((item) => item.area === 'HEAP' && item.freed)
+        .slice(-2)
+        .map((item) => item.id)
+    );
     const changed = changedValues(previousSnapshot, next);
     const changedBlocks = new Map();
     changed.forEach(({ itemId, kind }) => {
@@ -1500,13 +1726,20 @@ export function bindTraceSequence({
     });
     lastChangedBlocks = changedBlocks;
     lastMemoryItems = next;
+    const diagnostic = snapshot?.diagnostic ?? null;
     const scopes = snapshotScopes(snapshot);
     activeScopes = scopes;
 
     stages.forEach((stageData) => {
       stageData.blocks.forEach((block, id) => {
+        block.classList.remove('memory-block--memory-error', 'memory-block--memory-error-target');
         const item = next.get(id);
-        if (!item) {
+        const shouldRender = item && (
+          item.area !== 'HEAP'
+          || !item.freed
+          || visibleFreedHeapIds.has(item.id)
+        );
+        if (!shouldRender) {
           if (block.classList.contains('is-drawn')) {
             block.classList.add('memory-block--exiting');
           }
@@ -1522,6 +1755,9 @@ export function bindTraceSequence({
           block.removeAttribute('aria-hidden');
         }
         updateBlock(block, item);
+        if (diagnostic?.targetId === item.id) {
+          block.classList.add('memory-block--memory-error-target');
+        }
       });
       layoutStage(stageData);
       if (stageData.areaSection.dataset.memoryArea === 'STACK') {
@@ -1549,7 +1785,11 @@ export function bindTraceSequence({
   };
 
   const positionPlayButton = (targetLine, animate = true) => {
-    const targetTop = targetLine.offsetTop + (targetLine.offsetHeight - playButton.offsetHeight) / 2;
+    if (!targetLine) return;
+    const targetRect = targetLine.getBoundingClientRect();
+    const sequenceRect = codeSequence.getBoundingClientRect();
+    const targetTop = targetRect.top - sequenceRect.top
+      + (targetRect.height - playButton.offsetHeight) / 2;
     const currentTop = playButton.offsetTop;
     const deltaY = currentTop - targetTop;
     playButton.style.transition = 'none';
@@ -1605,6 +1845,7 @@ export function bindTraceSequence({
     suppressNextClick = false;
     isRunning = false;
     autoRunActive = false;
+    activeStepCompletion = null;
     if (holdTimer !== null) window.clearTimeout(holdTimer);
     holdTimer = null;
     playButton.classList.remove('is-holding');
@@ -1615,12 +1856,22 @@ export function bindTraceSequence({
     previousSnapshot = new Map();
     lastMemoryItems = new Map();
     lastChangedBlocks = new Map();
+    previousArrowTargets = new Map();
     activeScopes = [];
     stages.forEach(({ stage, blocks, scopeRails }) => {
+      stage.scrollLeft = 0;
       delete stage.dataset.visibleBlocks;
       scopeRails?.replaceChildren();
       blocks.forEach((block) => {
-        block.classList.remove('is-drawn', 'memory-block--freed', 'memory-block--exiting');
+        block.classList.remove(
+          'is-drawn',
+          'memory-block--freed',
+          'memory-block--dangling',
+          'memory-block--unreachable',
+          'memory-block--memory-error',
+          'memory-block--memory-error-target',
+          'memory-block--exiting'
+        );
         block.setAttribute('aria-hidden', 'true');
         block.querySelectorAll('.memory-step').forEach((step) => step.classList.remove('is-visible'));
         block.style.left = '';
@@ -1644,6 +1895,7 @@ export function bindTraceSequence({
     playButton.style.transform = '';
     positionPlayButton(stepLines[0], false);
     status.textContent = status.dataset.idle;
+    status.classList.remove('status--memory-error');
     refreshAccessibility();
     syncTraceControls();
   };
@@ -1666,13 +1918,16 @@ export function bindTraceSequence({
     status.textContent = collapsedSpan
       ? `Ejecutando ${collapsedSpan.functionName}().`
       : instruction.runningStatus;
+    status.classList.toggle('status--memory-error', instruction.kind === 'memory-error');
     applySnapshot(instructions[executionEndStep].memory ?? []);
     lastExecutedStep = executionEndStep;
     syncDynamicParameters(lastExecutedStep);
 
-    schedule(() => {
+    const completeStep = () => {
+      activeStepCompletion = null;
       isRunning = false;
       status.textContent = instructions[executionEndStep].readyStatus;
+      status.classList.toggle('status--memory-error', instructions[executionEndStep].kind === 'memory-error');
       for (let index = currentStep; index <= executionEndStep; index += 1) {
         const completedLine = stepLines[index];
         completedLine?.classList.remove('is-active');
@@ -1695,8 +1950,11 @@ export function bindTraceSequence({
         // only scrolling on function returns left long traces stranded above
         // the currently active instruction.
         window.requestAnimationFrame(() => scrollActiveLineIntoView(nextLine));
-        if (holdActive || autoRunActive) schedule(advanceStep, reducedMotion ? 0 : 120);
+        if (holdActive || autoRunActive) {
+          schedule(advanceStep, reducedMotion ? 0 : 120);
+        }
       } else {
+        currentStep = instructions.length;
         holdActive = false;
         autoRunActive = false;
         playButton.disabled = false;
@@ -1704,20 +1962,34 @@ export function bindTraceSequence({
         playButton.classList.remove('is-auto-running');
         syncTraceControls();
       }
-    }, stepDelay);
+    };
+
+    activeStepCompletion = completeStep;
+    schedule(completeStep, stepDelay);
+  };
+
+  const finishActiveStep = () => {
+    if (!activeStepCompletion) return false;
+    const completeStep = activeStepCompletion;
+    activeStepCompletion = null;
+    timers.splice(0).forEach(window.clearTimeout);
+    completeStep();
+    return true;
   };
 
   const rewindStep = () => {
     if (isRunning || currentStep === 0) return;
 
     timers.splice(0).forEach(window.clearTimeout);
+    activeStepCompletion = null;
     holdActive = false;
     autoRunActive = false;
     if (holdTimer !== null) window.clearTimeout(holdTimer);
     holdTimer = null;
     playButton.classList.remove('is-holding', 'is-auto-running', 'is-running');
 
-    currentStep -= 1;
+    const previousStep = currentStep - 1;
+    currentStep = collapsedFunctionStart(previousStep) ?? previousStep;
     lastExecutedStep = currentStep - 1;
     applySnapshot(currentStep > 0 ? instructions[currentStep - 1].memory ?? [] : []);
     syncDynamicParameters(lastExecutedStep);
@@ -1743,6 +2015,10 @@ export function bindTraceSequence({
     status.textContent = currentStep > 0
       ? instructions[currentStep - 1].readyStatus
       : status.dataset.idle;
+    status.classList.toggle(
+      'status--memory-error',
+      currentStep > 0 && instructions[currentStep - 1].kind === 'memory-error'
+    );
     syncTraceControls();
   };
 
@@ -1803,8 +2079,17 @@ export function bindTraceSequence({
   });
 
   stepBackButton?.addEventListener('click', rewindStep);
-  stepForwardButton?.addEventListener('click', advanceStep);
+  stepForwardButton?.addEventListener('click', () => {
+    if (currentStep >= instructions.length) return;
+    if (isRunning) finishActiveStep();
+    advanceStep();
+  });
   autoPlayButton?.addEventListener('click', () => {
+    if (currentStep >= instructions.length) {
+      reset();
+      return;
+    }
+
     if (autoRunActive) {
       autoRunActive = false;
       autoPlayButton.classList.remove('is-active');

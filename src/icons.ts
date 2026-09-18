@@ -5,6 +5,8 @@ import {
   Moon,
   Play,
   RotateCcw,
+  Share2,
+  Square,
   Sun,
   TriangleAlert,
   X,
@@ -18,6 +20,8 @@ const iconNodes = {
   moon: Moon,
   play: Play,
   'rotate-ccw': RotateCcw,
+  share: Share2,
+  square: Square,
   sun: Sun,
   'triangle-alert': TriangleAlert,
   x: X

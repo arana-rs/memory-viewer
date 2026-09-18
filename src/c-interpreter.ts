@@ -45,9 +45,11 @@ export class CParserError extends Error {
 }
 
 export class CExecutionError extends Error {
-  constructor(message) {
+  constructor(message, code = 'execution-error', targetId = null) {
     super(message);
     this.name = 'CExecutionError';
+    this.code = code;
+    this.targetId = targetId;
   }
 }
 
@@ -263,6 +265,16 @@ class Parser {
     const start = this.cursor;
     const declaredType = type ?? this.parseType();
     const name = this.expectIdentifier();
+    let arrayLength = null;
+    if (this.match('[')) {
+      this.consume('[');
+      const lengthToken = this.consume();
+      if (lengthToken.type !== 'number' || !/^\d+$/.test(lengthToken.value) || Number(lengthToken.value) < 1) {
+        throw new CParserError('El tamaño del arreglo debe ser un entero positivo.', lengthToken);
+      }
+      arrayLength = Number(lengthToken.value);
+      this.consume(']');
+    }
     let initializer = null;
     if (this.match('=')) {
       this.consume('=');
@@ -271,7 +283,7 @@ class Parser {
     this.consume(';');
     return node('declaration', this.tokens.slice(start, this.cursor), {
       name: name.value,
-      type: declaredType,
+      type: arrayLength === null ? declaredType : { ...declaredType, arrayLength },
       initializer
     });
   }
@@ -434,6 +446,17 @@ class Parser {
         continue;
       }
 
+      if (this.match('[')) {
+        this.consume('[');
+        const index = this.parseExpression();
+        this.consume(']');
+        result = node('index', [...(result.tokens ?? []), ...(index.tokens ?? [])], {
+          object: result,
+          index
+        });
+        continue;
+      }
+
       break;
     }
     return result;
@@ -519,7 +542,7 @@ export function parseC(source) {
 }
 
 function typeKey(type) {
-  return `${type.base}${'*'.repeat(type.pointerDepth)}`;
+  return `${type.base}${'*'.repeat(type.pointerDepth)}${type.arrayLength ? `[${type.arrayLength}]` : ''}`;
 }
 
 function isPointer(type) {
@@ -540,6 +563,7 @@ function formatScalar(value) {
   if (value === undefined) return '?';
   if (value === null) return 'NULL';
   if (value?.kind === 'pointer') return value.target ? formatAddress(value.target.address) : 'NULL';
+  if (value?.kind === 'array') return '[...]';
   return String(value);
 }
 
@@ -583,18 +607,20 @@ class CInterpreter {
   }
 
   typeSize(type) {
-    if (isPointer(type)) return 8;
-    if (type.base === 'char') return 1;
-    if (type.base === 'short') return 2;
-    if (type.base === 'long' || type.base === 'double') return 8;
-    if (type.base.startsWith('struct ')) return this.structLayout(type.base.slice(7)).size;
-    return 4;
+    let scalarSize;
+    if (isPointer(type)) scalarSize = 8;
+    else if (type.base === 'char') scalarSize = 1;
+    else if (type.base === 'short') scalarSize = 2;
+    else if (type.base === 'long' || type.base === 'double') scalarSize = 8;
+    else if (type.base.startsWith('struct ')) scalarSize = this.structLayout(type.base.slice(7)).size;
+    else scalarSize = 4;
+    return scalarSize * (type.arrayLength ?? 1);
   }
 
   typeAlignment(type) {
     if (isPointer(type)) return 8;
     if (type.base.startsWith('struct ')) return this.structLayout(type.base.slice(7)).alignment;
-    return Math.min(this.typeSize(type), 8);
+    return Math.min(this.typeSize({ ...type, arrayLength: null }), 8);
   }
 
   structLayout(name) {
@@ -614,6 +640,13 @@ class CInterpreter {
   }
 
   defaultValue(type) {
+    if (type.arrayLength) {
+      return {
+        kind: 'array',
+        type: { ...type, arrayLength: null },
+        values: Array.from({ length: type.arrayLength }, () => this.defaultValue({ ...type, arrayLength: null }))
+      };
+    }
     if (isPointer(type)) return { kind: 'pointer', type: pointerType(type), target: null };
     return undefined;
   }
@@ -753,8 +786,21 @@ class CInterpreter {
   readRef(ref) {
     if (!ref) throw new CExecutionError('Referencia inválida.');
     if (ref.kind === 'cell') return ref.value;
+    if (ref.kind === 'array-element') return ref.array.values[ref.index];
+    if (ref.kind === 'heap-object') {
+      if (ref.freed) throw new CExecutionError(
+        'Se intentó leer memoria después de liberarla.',
+        'use-after-free',
+        ref.id
+      );
+      return ref.value;
+    }
     if (ref.kind === 'field') {
-      if (ref.object.freed) throw new CExecutionError('Se intentó leer un nodo liberado.');
+      if (ref.object.freed) throw new CExecutionError(
+        'Se intentó leer un nodo después de liberarlo.',
+        'use-after-free',
+        ref.object.id
+      );
       return ref.value;
     }
     throw new CExecutionError('La referencia no es legible.');
@@ -762,16 +808,46 @@ class CInterpreter {
 
   writeRef(ref, value) {
     if (!ref) throw new CExecutionError('Referencia inválida.');
+    if (ref.kind === 'array-element') {
+      ref.array.values[ref.index] = value;
+      return;
+    }
+    if (ref.kind === 'heap-object') {
+      if (ref.freed) throw new CExecutionError(
+        'Se intentó escribir en memoria después de liberarla.',
+        'use-after-free',
+        ref.id
+      );
+      ref.value = value;
+      return;
+    }
     if (ref.kind === 'field' && ref.object.freed) {
-      throw new CExecutionError('Se intentó escribir en un nodo liberado.');
+      throw new CExecutionError(
+        'Se intentó escribir en un nodo después de liberarlo.',
+        'use-after-free',
+        ref.object.id
+      );
     }
     ref.value = value;
   }
 
-  objectFromPointer(pointer) {
-    if (!pointer?.target) throw new CExecutionError('No se puede desreferenciar NULL.');
+  pointerSourceId(expression) {
+    if (expression?.kind !== 'identifier') return null;
+    return this.lookup(expression.name)?.id ?? null;
+  }
+
+  objectFromPointer(pointer, sourceId = null) {
+    if (!pointer?.target) throw new CExecutionError(
+      'No se puede desreferenciar NULL.',
+      'null-dereference',
+      sourceId
+    );
     if (pointer.target.object) {
-      if (pointer.target.object.freed) throw new CExecutionError('El puntero apunta a memoria liberada.');
+      if (pointer.target.object.freed) throw new CExecutionError(
+        'El puntero se usa después de liberar su memoria.',
+        'use-after-free',
+        pointer.target.object.id
+      );
       return pointer.target.object;
     }
     throw new CExecutionError('El puntero no apunta a un struct.');
@@ -789,15 +865,53 @@ class CInterpreter {
 
     if (expression.kind === 'unary' && expression.operator === '*') {
       const pointer = this.evaluate(expression.operand);
-      if (!pointer?.target) throw new CExecutionError('No se puede asignar a través de NULL.');
+      if (!pointer?.target) throw new CExecutionError(
+        'No se puede escribir a través de NULL.',
+        'null-dereference',
+        this.pointerSourceId(expression.operand)
+      );
       if (pointer.target.cell) return pointer.target.cell;
       if (pointer.target.field) return pointer.target.field;
+      if (pointer.target.object) {
+        return pointer.target.object;
+      }
       throw new CExecutionError('El puntero no apunta a un valor asignable.');
+    }
+
+    if (expression.kind === 'index') {
+      const arrayRef = expression.object.kind === 'identifier'
+        ? this.lookup(expression.object.name)
+        : this.resolveLvalue(expression.object);
+      const array = arrayRef?.value;
+      const index = this.evaluate(expression.index);
+      if (arrayRef?.kind !== 'cell' || array?.kind !== 'array') {
+        throw new CExecutionError('El valor no es un arreglo indexable.');
+      }
+      if (!Number.isInteger(index) || index < 0 || index >= array.values.length) {
+        throw new CExecutionError(
+          `Acceso fuera de rango: índice ${index} para un arreglo de ${array.values.length} elementos.`,
+          'out-of-bounds',
+          arrayRef.id
+        );
+      }
+      return {
+        id: `${arrayRef.id}[${index}]`,
+        kind: 'array-element',
+        name: `[${index}]`,
+        type: { ...array.type },
+        value: array.values[index],
+        array,
+        index,
+        parent: arrayRef
+      };
     }
 
     if (expression.kind === 'member') {
       const object = expression.operator === '->'
-        ? this.objectFromPointer(this.evaluate(expression.object))
+        ? this.objectFromPointer(
+          this.evaluate(expression.object),
+          this.pointerSourceId(expression.object)
+        )
         : this.evaluate(expression.object);
       return this.fieldRef(object, expression.field);
     }
@@ -825,6 +939,8 @@ class CInterpreter {
       case 'sizeof':
         return this.typeSize(expression.type);
       case 'member':
+        return this.readRef(this.resolveLvalue(expression));
+      case 'index':
         return this.readRef(this.resolveLvalue(expression));
       case 'unary': {
         if (expression.operator === '&') {
@@ -906,6 +1022,7 @@ class CInterpreter {
       address,
       size,
       freed: false,
+      value: undefined,
       fields: new Map()
     };
 
@@ -939,8 +1056,24 @@ class CInterpreter {
     }
 
     if (expression.callee === 'free') {
+      if (expression.args.length !== 1) {
+        throw new CExecutionError('free requiere exactamente un puntero.');
+      }
       const pointer = this.evaluate(expression.args[0]);
-      if (!pointer?.target?.object) throw new CExecutionError('free necesita un puntero de heap válido.');
+      if (pointer?.kind !== 'pointer') {
+        throw new CExecutionError('free necesita un puntero de heap válido.');
+      }
+      if (!pointer.target) return undefined;
+      if (!pointer.target.object) {
+        throw new CExecutionError('free necesita un puntero de heap válido.');
+      }
+      if (pointer.target.object.freed) {
+        throw new CExecutionError(
+          'Se intentó liberar memoria dos veces.',
+          'double-free',
+          pointer.target.object.id
+        );
+      }
       pointer.target.object.freed = true;
       return undefined;
     }
@@ -1041,6 +1174,24 @@ class CInterpreter {
       line: statement.tokens?.[0]?.line ?? '?'
     };
 
+    try {
+      return this.executeStatementUnsafe(statement);
+    } catch (error) {
+      if (error instanceof CExecutionError && [
+        'use-after-free',
+        'double-free',
+        'null-dereference',
+        'out-of-bounds'
+      ].includes(error.code)) {
+        this.recordError(statement, error);
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  executeStatementUnsafe(statement) {
+
     if (statement.kind === 'block') {
       const blockScope = this.enterScope(statement);
       try {
@@ -1107,6 +1258,34 @@ class CInterpreter {
     const stack = [];
     const stackCells = this.frames.flatMap((frame) => [...frame.variables.values()]);
     const aliasesByTarget = new Map();
+    const reachableHeapIds = new Set();
+    const visitedObjects = new Set();
+
+    const visitPointer = (pointer) => {
+      if (pointer?.kind !== 'pointer' || !pointer.target) return;
+      const target = pointer.target;
+      if (target.object) {
+        if (target.object.freed || visitedObjects.has(target.object.id)) return;
+        visitedObjects.add(target.object.id);
+        reachableHeapIds.add(target.object.id);
+        target.object.fields.forEach((field) => visitPointer(field.value));
+        return;
+      }
+      if (target.cell) {
+        visitPointer(target.cell.value);
+        return;
+      }
+      if (target.field) visitPointer(target.field.value);
+    };
+
+    const pointerState = (value) => (
+      value?.kind === 'pointer'
+      && value.target?.object?.freed
+        ? 'dangling'
+        : null
+    );
+
+    stackCells.forEach((cell) => visitPointer(cell.value));
     const addAlias = (target, alias) => {
       if (!target?.id) return;
       const aliases = aliasesByTarget.get(target.id) ?? [];
@@ -1123,7 +1302,7 @@ class CInterpreter {
 
     this.frames.forEach((frame, frameIndex) => {
       frame.variables.forEach((cell) => {
-        stack.push({
+        const item = {
           id: cell.id,
           area: 'STACK',
           address: cell.address,
@@ -1131,6 +1310,7 @@ class CInterpreter {
           value: formatScalar(cell.value),
           type: typeKey(cell.type),
           pointerTargetId: cell.value?.kind === 'pointer' ? cell.value.target?.id ?? null : null,
+          pointerState: pointerState(cell.value),
           size: this.typeSize(cell.type),
           alignment: this.typeAlignment(cell.type),
           frameId: frame.id,
@@ -1138,7 +1318,21 @@ class CInterpreter {
           frameLabel: `${frame.name}()`,
           frameIndex,
           aliases: aliasesByTarget.get(cell.id) ?? []
-        });
+        };
+        if (cell.value?.kind === 'array') {
+          const elementType = { ...cell.type, arrayLength: null };
+          item.fields = cell.value.values.map((value, index) => ({
+            id: `${cell.id}[${index}]`,
+            name: `[${index}]`,
+            address: formatAddress(Number.parseInt(cell.address.slice(2), 16) + index * this.typeSize(elementType)),
+            value: formatScalar(value),
+            type: typeKey(elementType),
+            pointerTargetId: value?.kind === 'pointer' ? value.target?.id ?? null : null,
+            pointerState: pointerState(value),
+            aliases: []
+          }));
+        }
+        stack.push(item);
       });
     });
 
@@ -1147,9 +1341,14 @@ class CInterpreter {
       area: 'HEAP',
       address: object.address,
       name: object.name,
-      value: object.freed ? 'liberado' : '',
+      value: object.freed
+        ? 'liberado'
+        : object.typeName
+          ? ''
+          : formatScalar(object.value),
       size: object.size,
       freed: object.freed,
+      unreachable: !object.freed && !reachableHeapIds.has(object.id),
       fields: [...object.fields.values()].map((field) => ({
         id: field.id,
         name: field.name,
@@ -1157,6 +1356,7 @@ class CInterpreter {
         value: formatScalar(field.value),
         type: typeKey(field.type),
         pointerTargetId: field.value?.kind === 'pointer' ? field.value.target?.id ?? null : null,
+        pointerState: pointerState(field.value),
         aliases: aliasesByTarget.get(field.id) ?? []
       }))
     }));
@@ -1174,6 +1374,39 @@ class CInterpreter {
     }));
 
     return { stack, heap, scopes };
+  }
+
+  recordError(statement, error) {
+    const tokens = statement.kind === 'while' ? statement.headerTokens : statement.tokens;
+    const safeTokens = tokens.filter((token) => token?.value && token.value !== 'EOF');
+    const code = tokensToCode(safeTokens);
+    const detail = {
+      type: error.code,
+      message: error.message,
+      targetId: error.targetId ?? null
+    };
+    const memory = this.snapshot();
+    memory.diagnostic = detail;
+    const status = `⚠ ${memoryErrorLabel(error.code)}: ${error.message}`;
+    const functionName = this.currentFrame().name;
+    const sourceKey = statement.kind === 'declaration'
+      ? traceDeclarationKey(functionName, statement)
+      : traceOperationKey(functionName, safeTokens);
+    this.trace.push({
+      kind: 'memory-error',
+      sourceKey,
+      code,
+      buttonLabel: `Revisar ${code}`,
+      runningStatus: status,
+      readyStatus: status,
+      indent: Math.max(this.activeScopes.length, this.frames.length - 1),
+      scopeId: this.currentScope()?.id,
+      scopeKind: this.currentScope()?.kind,
+      scopeLabel: this.currentScope()?.label,
+      scopeDepth: this.activeScopes.length,
+      memory,
+      diagnostic: detail
+    });
   }
 
   record(tokens, status, metadata: Record<string, any> = {}) {
@@ -1217,6 +1450,15 @@ class CInterpreter {
     }
     return this.trace;
   }
+}
+
+function memoryErrorLabel(code) {
+  return {
+    'use-after-free': 'USE-AFTER-FREE',
+    'double-free': 'DOUBLE-FREE',
+    'null-dereference': 'NULL DEREFERENCE',
+    'out-of-bounds': 'OUT-OF-BOUNDS'
+  }[code] ?? 'ERROR DE MEMORIA';
 }
 
 function unaryOperatorAt(tokens, index) {
